@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Zähler bearbeiten' if meter else 'Zähler anlegen' }} – Verbrauchserfassung{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7 col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">
+          <i class="bi bi-{{ 'pencil' if meter else 'plus-circle' }} me-2"></i>
+          {{ 'Zähler bearbeiten' if meter else 'Zähler anlegen' }}
+        </h5>
+      </div>
+      <div class="card-body p-4">
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control"
+                   value="{{ meter.name if meter else '' }}"
+                   placeholder="z.B. Wasser Keller, Gaszähler EG …" required>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Typ <span class="text-danger">*</span></label>
+            <select name="meter_type" class="form-select" required>
+              {% for key, info in meter_types.items() %}
+              <option value="{{ key }}"
+                {% if meter and meter.meter_type == key %}selected{% endif %}>
+                {{ info.label }} ({{ info.unit }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Zählernummer</label>
+            <input type="text" name="meter_number" class="form-control"
+                   value="{{ meter.meter_number if meter else '' }}"
+                   placeholder="Optional – Seriennummer auf dem Gerät">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Standort</label>
+            <input type="text" name="location" class="form-control"
+                   value="{{ meter.location if meter else '' }}"
+                   placeholder="z.B. Keller, Hauswirtschaftsraum …">
+          </div>
+
+          {% if meter %}
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="active" id="active"
+                     {% if meter.active %}checked{% endif %}>
+              <label class="form-check-label" for="active">Zähler aktiv</label>
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Notizen</label>
+            <textarea name="notes" class="form-control" rows="2"
+                      placeholder="Beliebige Anmerkungen …">{{ meter.notes if meter else '' }}</textarea>
+          </div>
+
+          <div class="d-flex gap-2 justify-content-end">
+            <a href="{{ url_for('meters') }}" class="btn btn-outline-secondary">Abbrechen</a>
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-lg me-1"></i>Speichern
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
