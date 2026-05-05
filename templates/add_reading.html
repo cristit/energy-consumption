@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Ablesung erfassen – Verbrauchserfassung{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-8 col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-plus-circle me-2"></i>Ablesung erfassen</h5>
+      </div>
+      <div class="card-body p-4">
+
+        {% if not meters %}
+          <div class="alert alert-warning">
+            Zuerst einen <a href="{{ url_for('add_meter') }}">Zähler anlegen</a>.
+          </div>
+        {% else %}
+        <form method="post" enctype="multipart/form-data" id="readingForm">
+
+          <!-- Meter selection -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Zähler <span class="text-danger">*</span></label>
+            <select name="meter_id" id="meterSelect" class="form-select" required>
+              <option value="">– Zähler wählen –</option>
+              {% for m in meters %}
+              <option value="{{ m.id }}"
+                      data-unit="{{ m.type_info.unit }}"
+                      data-color="{{ m.type_info.color }}"
+                      data-latest="{{ m.latest_reading.value if m.latest_reading else '' }}"
+                      {% if preselect == m.id %}selected{% endif %}>
+                {{ m.name }} ({{ m.type_info.label }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Previous reading hint -->
+          <div id="prevHint" class="alert alert-info py-2 small d-none">
+            <i class="bi bi-info-circle me-1"></i>
+            Letzter Stand: <strong id="prevValue"></strong> <span id="prevUnit"></span>
+          </div>
+
+          <!-- Value -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">
+              Zählerstand <span class="text-danger">*</span>
+              <span class="text-muted fw-normal" id="unitLabel"></span>
+            </label>
+            <div class="input-group">
+              <input type="number" name="value" id="valueInput" class="form-control form-control-lg"
+                     step="0.001" min="0" placeholder="0.000" required>
+              <span class="input-group-text" id="unitSuffix"></span>
+            </div>
+            <div id="consumptionHint" class="form-text text-success d-none">
+              Verbrauch: <strong id="consumptionValue"></strong>
+            </div>
+          </div>
+
+          <!-- Date/Time -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Ablesedatum <span class="text-danger">*</span></label>
+            <input type="datetime-local" name="read_at" class="form-control"
+                   value="{{ now }}" required>
+          </div>
+
+          <!-- Image upload -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-camera me-1"></i>Foto vom Zähler
+              <span class="text-muted fw-normal">(optional)</span>
+            </label>
+            <div class="upload-area border rounded-3 p-3 text-center position-relative"
+                 id="uploadArea">
+              <input type="file" name="image" id="imageInput" accept="image/*"
+                     capture="environment" class="upload-input">
+              <div id="uploadPlaceholder">
+                <i class="bi bi-camera display-6 text-muted"></i>
+                <p class="mb-1 mt-2">Foto aufnehmen oder hochladen</p>
+                <p class="small text-muted">JPG, PNG, WEBP · max. 16 MB</p>
+                <button type="button" class="btn btn-outline-primary btn-sm"
+                        onclick="document.getElementById('imageInput').click()">
+                  <i class="bi bi-upload me-1"></i>Datei wählen
+                </button>
+              </div>
+              <div id="previewContainer" class="d-none">
+                <img id="previewImg" src="" alt="Vorschau"
+                     class="img-fluid rounded" style="max-height:220px">
+                <div class="mt-2">
+                  <button type="button" class="btn btn-sm btn-outline-danger"
+                          onclick="clearImage()">
+                    <i class="bi bi-x-circle me-1"></i>Entfernen
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="form-text">
+              <i class="bi bi-lightbulb me-1 text-warning"></i>
+              Tipp: Fotografieren Sie den Zählerstand und tragen Sie den Wert danach oben ein.
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Notiz</label>
+            <textarea name="notes" class="form-control" rows="2"
+                      placeholder="Optionale Anmerkung …"></textarea>
+          </div>
+
+          <div class="d-flex gap-2 justify-content-end">
+            <a href="{{ url_for('readings') }}" class="btn btn-outline-secondary">Abbrechen</a>
+            <button type="submit" class="btn btn-primary btn-lg px-4">
+              <i class="bi bi-check-circle me-1"></i>Speichern
+            </button>
+          </div>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const meterSelect = document.getElementById('meterSelect');
+const valueInput  = document.getElementById('valueInput');
+const unitLabel   = document.getElementById('unitLabel');
+const unitSuffix  = document.getElementById('unitSuffix');
+const prevHint    = document.getElementById('prevHint');
+const prevValue   = document.getElementById('prevValue');
+const prevUnit    = document.getElementById('prevUnit');
+const consHint    = document.getElementById('consumptionHint');
+const consValue   = document.getElementById('consumptionValue');
+
+function updateMeterInfo() {
+  const opt = meterSelect.selectedOptions[0];
+  const unit = opt?.dataset.unit || '';
+  const latest = opt?.dataset.latest || '';
+  const color  = opt?.dataset.color || '';
+
+  unitLabel.textContent = unit ? `(${unit})` : '';
+  unitSuffix.textContent = unit;
+
+  if (latest) {
+    prevValue.textContent = parseFloat(latest).toLocaleString('de-DE', {minimumFractionDigits:3});
+    prevUnit.textContent  = unit;
+    prevHint.classList.remove('d-none');
+  } else {
+    prevHint.classList.add('d-none');
+  }
+  updateConsumption();
+}
+
+function updateConsumption() {
+  const opt    = meterSelect.selectedOptions[0];
+  const latest = parseFloat(opt?.dataset.latest);
+  const current = parseFloat(valueInput.value);
+  const unit   = opt?.dataset.unit || '';
+
+  if (!isNaN(latest) && !isNaN(current) && current >= latest) {
+    const diff = (current - latest).toFixed(3);
+    consValue.textContent = `${diff} ${unit}`;
+    consHint.classList.remove('d-none');
+  } else {
+    consHint.classList.add('d-none');
+  }
+}
+
+meterSelect.addEventListener('change', updateMeterInfo);
+valueInput.addEventListener('input', updateConsumption);
+updateMeterInfo();
+
+// Image preview
+const imageInput = document.getElementById('imageInput');
+imageInput.addEventListener('change', function() {
+  if (this.files && this.files[0]) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('previewImg').src = e.target.result;
+      document.getElementById('uploadPlaceholder').classList.add('d-none');
+      document.getElementById('previewContainer').classList.remove('d-none');
+    };
+    reader.readAsDataURL(this.files[0]);
+  }
+});
+
+function clearImage() {
+  imageInput.value = '';
+  document.getElementById('uploadPlaceholder').classList.remove('d-none');
+  document.getElementById('previewContainer').classList.add('d-none');
+}
+
+// Drag & drop
+const uploadArea = document.getElementById('uploadArea');
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+uploadArea.addEventListener('dragleave', ()  => uploadArea.classList.remove('drag-over'));
+uploadArea.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadArea.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) {
+    imageInput.files = e.dataTransfer.files;
+    imageInput.dispatchEvent(new Event('change'));
+  }
+});
+</script>
+{% endblock %}
