@@ -8,10 +8,10 @@ services:
     container_name: meter-readings-app
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "${APP_PORT:-5000}:5000"
     environment:
-      SECRET_KEY: "change-me-in-production-use-a-long-random-string"
-      DATABASE_URL: "mysql+pymysql://meter_user:meter_password@db:3306/meter_db"
+      SECRET_KEY: "${SECRET_KEY}"
+      DATABASE_URL: "mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}"
     volumes:
       - uploads_data:/app/uploads
     depends_on:
@@ -26,15 +26,15 @@ services:
     container_name: meter-readings-db
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root_password_change_me
-      MYSQL_DATABASE: meter_db
-      MYSQL_USER: meter_user
-      MYSQL_PASSWORD: meter_password
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE}"
+      MYSQL_USER: "${MYSQL_USER}"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD}"
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost",
-             "-u", "meter_user", "--password=meter_password"]
+             "-u", "${MYSQL_USER}", "--password=${MYSQL_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -48,11 +48,11 @@ services:
     container_name: meter-readings-pma
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "${PMA_PORT:-8080}:80"
     environment:
       PMA_HOST: db
-      PMA_USER: meter_user
-      PMA_PASSWORD: meter_password
+      PMA_USER: "${MYSQL_USER}"
+      PMA_PASSWORD: "${MYSQL_PASSWORD}"
     depends_on:
       - db
     networks:
