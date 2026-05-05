@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Analyse – Verbrauchserfassung{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h1 class="h3 mb-0"><i class="bi bi-bar-chart-line me-2 text-primary"></i>Analyse</h1>
+</div>
+
+{% if not meters %}
+  <div class="card border-0 shadow-sm text-center py-5">
+    <div class="card-body">
+      <i class="bi bi-bar-chart-line display-1 text-muted"></i>
+      <h4 class="mt-3">Noch keine Daten vorhanden</h4>
+      <a href="{{ url_for('add_meter') }}" class="btn btn-primary mt-2">Zähler anlegen</a>
+    </div>
+  </div>
+{% else %}
+
+<!-- Controls -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body d-flex flex-wrap gap-3 align-items-end">
+    <div>
+      <label class="form-label fw-semibold small mb-1">Zähler</label>
+      <select id="meterSelect" class="form-select">
+        {% for m in meters %}
+        <option value="{{ m.id }}"
+                {% if request.args.get('meter_id', type=int) == m.id %}selected{% endif %}>
+          {{ m.name }} ({{ m.type_info.label }})
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label fw-semibold small mb-1">Zeitraum</label>
+      <select id="monthsSelect" class="form-select">
+        <option value="3">Letzte 3 Monate</option>
+        <option value="6">Letzte 6 Monate</option>
+        <option value="12" selected>Letztes Jahr</option>
+        <option value="24">Letzte 2 Jahre</option>
+        <option value="60">Letzte 5 Jahre</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="loadCharts()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Aktualisieren
+    </button>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-graph-up me-2 text-primary"></i>Zählerstandsverlauf
+      </div>
+      <div class="card-body">
+        <canvas id="valueChart" height="260"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-bar-chart me-2 text-warning"></i>Verbrauch pro Ablesung
+      </div>
+      <div class="card-body">
+        <canvas id="consumptionChart" height="260"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-calendar3 me-2 text-success"></i>Monatlicher Verbrauch
+      </div>
+      <div class="card-body">
+        <canvas id="monthlyChart" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Summary stats -->
+<div class="row g-3 mt-2" id="statsRow"></div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+let valueChartInst, consumptionChartInst, monthlyChartInst;
+
+async function loadCharts() {
+  const meterId = document.getElementById('meterSelect').value;
+  const months  = document.getElementById('monthsSelect').value;
+  if (!meterId) return;
+
+  const [detail, monthly] = await Promise.all([
+    fetch(`/api/chart-data/${meterId}?months=${months}`).then(r => r.json()),
+    fetch(`/api/monthly-summary/${meterId}`).then(r => r.json()),
+  ]);
+
+  // Destroy old
+  valueChartInst?.destroy();
+  consumptionChartInst?.destroy();
+  monthlyChartInst?.destroy();
+
+  const color = detail.color;
+  const unit  = detail.unit;
+
+  // Value line chart
+  valueChartInst = new Chart(document.getElementById('valueChart'), {
+    type: 'line',
+    data: {
+      labels: detail.labels,
+      datasets: [{
+        label: `Stand (${unit})`,
+        data: detail.values,
+        borderColor: color,
+        backgroundColor: color + '22',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 4,
+      }]
+    },
+    options: chartOptions(`Stand (${unit})`),
+  });
+
+  // Consumption bar chart
+  consumptionChartInst = new Chart(document.getElementById('consumptionChart'), {
+    type: 'bar',
+    data: {
+      labels: detail.labels,
+      datasets: [{
+        label: `Verbrauch (${unit})`,
+        data: detail.consumptions,
+        backgroundColor: color + 'aa',
+        borderColor: color,
+        borderWidth: 1,
+      }]
+    },
+    options: chartOptions(`Verbrauch (${unit})`),
+  });
+
+  // Monthly bar chart
+  monthlyChartInst = new Chart(document.getElementById('monthlyChart'), {
+    type: 'bar',
+    data: {
+      labels: monthly.labels,
+      datasets: [{
+        label: `Monat (${monthly.unit})`,
+        data: monthly.values,
+        backgroundColor: monthly.color + '99',
+        borderColor: monthly.color,
+        borderWidth: 1,
+      }]
+    },
+    options: chartOptions(`Monat (${monthly.unit})`),
+  });
+
+  // Stats
+  const total = detail.values.length >= 2
+    ? (detail.values[detail.values.length-1] - detail.values[0]).toFixed(3)
+    : null;
+  const avgMonthly = monthly.values.length
+    ? (monthly.values.reduce((a,b) => a+b, 0) / monthly.values.length).toFixed(3)
+    : null;
+  const maxMonth = monthly.values.length
+    ? Math.max(...monthly.values).toFixed(3) : null;
+
+  const sr = document.getElementById('statsRow');
+  sr.innerHTML = [
+    ['Gesamtverbrauch', total, unit, 'graph-up', 'primary'],
+    ['Ø pro Monat', avgMonthly, unit, 'calculator', 'info'],
+    ['Höchster Monat', maxMonth, unit, 'arrow-up-circle', 'warning'],
+    ['Ablesungen', detail.labels.length, '', 'list-check', 'success'],
+  ].map(([label, val, u, icon, col]) => `
+    <div class="col-6 col-md-3">
+      <div class="card border-0 shadow-sm text-center">
+        <div class="card-body py-3">
+          <i class="bi bi-${icon} fs-3 text-${col}"></i>
+          <div class="fs-4 fw-bold mt-1">${val !== null ? val + (u?' '+u:'') : '–'}</div>
+          <div class="small text-muted">${label}</div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function chartOptions(yLabel) {
+  return {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { maxRotation: 45, font: { size: 11 } } },
+      y: { beginAtZero: false, title: { display: true, text: yLabel } }
+    }
+  };
+}
+
+// Auto-load on page ready
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('meterSelect')) loadCharts();
+});
+document.getElementById('meterSelect')?.addEventListener('change', loadCharts);
+</script>
+{% endblock %}
