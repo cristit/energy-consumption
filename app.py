@@ -1,0 +1,228 @@
+import os
+import base64
+from datetime import datetime, timedelta
+from flask import (Flask, render_template, request, redirect, url_for,
+                   flash, jsonify, send_from_directory)
+from werkzeug.utils import secure_filename
+from sqlalchemy import func
+from models import db, Meter, Reading, METER_TYPES
+from config import Config
+
+app = Flask(__name__)
+app.config.from_object(Config)
+
+db.init_app(app)
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+
+@app.context_processor
+def inject_globals():
+    return {'meter_types': METER_TYPES, 'now': datetime.utcnow()}
+
+
+# ── Dashboard ──────────────────────────────────────────────────────────────────
+@app.route('/')
+def dashboard():
+    meters = Meter.query.filter_by(active=True).all()
+    stats = []
+    for m in meters:
+        readings = sorted(m.readings, key=lambda r: r.read_at)
+        monthly = None
+        if len(readings) >= 2:
+            last = readings[-1]
+            prev = readings[-2]
+            days = max((last.read_at - prev.read_at).days, 1)
+            diff = last.value - prev.value
+            monthly = round(diff / days * 30, 3)
+        stats.append({'meter': m, 'monthly_est': monthly})
+    return render_template('dashboard.html', stats=stats)
+
+
+# ── Meters ─────────────────────────────────────────────────────────────────────
+@app.route('/meters')
+def meters():
+    all_meters = Meter.query.order_by(Meter.created_at.desc()).all()
+    return render_template('meters.html', meters=all_meters)
+
+
+@app.route('/meters/add', methods=['GET', 'POST'])
+def add_meter():
+    if request.method == 'POST':
+        meter = Meter(
+            name        = request.form['name'].strip(),
+            meter_type  = request.form['meter_type'],
+            meter_number= request.form.get('meter_number', '').strip(),
+            location    = request.form.get('location', '').strip(),
+            notes       = request.form.get('notes', '').strip(),
+        )
+        db.session.add(meter)
+        db.session.commit()
+        flash(f'Zähler „{meter.name}" wurde angelegt.', 'success')
+        return redirect(url_for('meters'))
+    return render_template('meter_form.html', meter=None)
+
+
+@app.route('/meters/<int:meter_id>/edit', methods=['GET', 'POST'])
+def edit_meter(meter_id):
+    meter = Meter.query.get_or_404(meter_id)
+    if request.method == 'POST':
+        meter.name         = request.form['name'].strip()
+        meter.meter_type   = request.form['meter_type']
+        meter.meter_number = request.form.get('meter_number', '').strip()
+        meter.location     = request.form.get('location', '').strip()
+        meter.notes        = request.form.get('notes', '').strip()
+        meter.active       = 'active' in request.form
+        db.session.commit()
+        flash(f'Zähler „{meter.name}" wurde aktualisiert.', 'success')
+        return redirect(url_for('meters'))
+    return render_template('meter_form.html', meter=meter)
+
+
+@app.route('/meters/<int:meter_id>/delete', methods=['POST'])
+def delete_meter(meter_id):
+    meter = Meter.query.get_or_404(meter_id)
+    name = meter.name
+    db.session.delete(meter)
+    db.session.commit()
+    flash(f'Zähler „{name}" wurde gelöscht.', 'warning')
+    return redirect(url_for('meters'))
+
+
+# ── Readings ───────────────────────────────────────────────────────────────────
+@app.route('/readings')
+def readings():
+    meter_id = request.args.get('meter_id', type=int)
+    query = Reading.query.join(Meter)
+    if meter_id:
+        query = query.filter(Reading.meter_id == meter_id)
+    all_readings = query.order_by(Reading.read_at.desc()).limit(200).all()
+    meters = Meter.query.filter_by(active=True).all()
+    return render_template('readings.html', readings=all_readings,
+                           meters=meters, selected_meter=meter_id)
+
+
+@app.route('/readings/add', methods=['GET', 'POST'])
+def add_reading():
+    meters = Meter.query.filter_by(active=True).all()
+    preselect = request.args.get('meter_id', type=int)
+
+    if request.method == 'POST':
+        meter_id = int(request.form['meter_id'])
+        value    = float(request.form['value'].replace(',', '.'))
+        read_at  = datetime.strptime(request.form['read_at'], '%Y-%m-%dT%H:%M')
+        notes    = request.form.get('notes', '').strip()
+
+        image_path = None
+        file = request.files.get('image')
+        if file and file.filename and allowed_file(file.filename):
+            filename = secure_filename(
+                f"{meter_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+            )
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            image_path = filename
+
+        reading = Reading(meter_id=meter_id, value=value,
+                          read_at=read_at, notes=notes, image_path=image_path)
+        db.session.add(reading)
+        db.session.commit()
+        flash('Ablesung wurde gespeichert.', 'success')
+        return redirect(url_for('readings', meter_id=meter_id))
+
+    return render_template('add_reading.html', meters=meters, preselect=preselect,
+                           now=datetime.now().strftime('%Y-%m-%dT%H:%M'))
+
+
+@app.route('/readings/<int:reading_id>/delete', methods=['POST'])
+def delete_reading(reading_id):
+    reading = Reading.query.get_or_404(reading_id)
+    meter_id = reading.meter_id
+    if reading.image_path:
+        try:
+            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], reading.image_path))
+        except OSError:
+            pass
+    db.session.delete(reading)
+    db.session.commit()
+    flash('Ablesung wurde gelöscht.', 'warning')
+    return redirect(url_for('readings', meter_id=meter_id))
+
+
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+# ── Analysis ───────────────────────────────────────────────────────────────────
+@app.route('/analysis')
+def analysis():
+    meters = Meter.query.filter_by(active=True).all()
+    return render_template('analysis.html', meters=meters)
+
+
+@app.route('/api/chart-data/<int:meter_id>')
+def chart_data(meter_id):
+    meter = Meter.query.get_or_404(meter_id)
+    months_back = request.args.get('months', 12, type=int)
+    since = datetime.utcnow() - timedelta(days=months_back * 31)
+
+    readings = Reading.query.filter(
+        Reading.meter_id == meter_id,
+        Reading.read_at >= since
+    ).order_by(Reading.read_at).all()
+
+    labels, values, consumptions = [], [], []
+    for i, r in enumerate(readings):
+        labels.append(r.read_at.strftime('%d.%m.%Y'))
+        values.append(r.value)
+        if i > 0:
+            consumptions.append(round(r.value - readings[i-1].value, 3))
+        else:
+            consumptions.append(0)
+
+    return jsonify({
+        'meter': meter.name,
+        'unit': meter.type_info['unit'],
+        'color': meter.type_info['color'],
+        'labels': labels,
+        'values': values,
+        'consumptions': consumptions,
+    })
+
+
+@app.route('/api/monthly-summary/<int:meter_id>')
+def monthly_summary(meter_id):
+    meter = Meter.query.get_or_404(meter_id)
+    readings = Reading.query.filter_by(meter_id=meter_id)\
+                            .order_by(Reading.read_at).all()
+
+    monthly = {}
+    for i in range(1, len(readings)):
+        r     = readings[i]
+        prev  = readings[i-1]
+        key   = r.read_at.strftime('%Y-%m')
+        label = r.read_at.strftime('%b %Y')
+        diff  = round(r.value - prev.value, 3)
+        if key not in monthly:
+            monthly[key] = {'label': label, 'total': 0}
+        monthly[key]['total'] = round(monthly[key]['total'] + diff, 3)
+
+    sorted_months = sorted(monthly.items())
+    return jsonify({
+        'unit': meter.type_info['unit'],
+        'color': meter.type_info['color'],
+        'labels': [v['label'] for _, v in sorted_months],
+        'values': [v['total'] for _, v in sorted_months],
+    })
+
+
+# ── Init ───────────────────────────────────────────────────────────────────────
+with app.app_context():
+    db.create_all()
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
