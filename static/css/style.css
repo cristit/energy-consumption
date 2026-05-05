@@ -1,0 +1,104 @@
+:root {
+  --card-radius: 12px;
+}
+
+body {
+  background: #f4f6fb;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
+}
+
+/* Cards */
+.card {
+  border-radius: var(--card-radius) !important;
+}
+
+.meter-card {
+  transition: transform .15s, box-shadow .15s;
+}
+
+.meter-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.1) !important;
+}
+
+/* Stat boxes */
+.stat-box {
+  background: #f8f9fa;
+}
+
+/* Upload area */
+.upload-area {
+  border: 2px dashed #ced4da !important;
+  border-radius: 10px !important;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-area:hover,
+.upload-area.drag-over {
+  border-color: #0d6efd !important;
+  background: #f0f5ff;
+}
+
+.upload-input {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 0;
+}
+
+#uploadPlaceholder,
+#previewContainer {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+#uploadPlaceholder button,
+#previewContainer button {
+  pointer-events: all;
+}
+
+/* Navbar */
+.navbar-brand {
+  letter-spacing: .02em;
+}
+
+/* Table */
+.table th {
+  font-size: .82rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #6c757d;
+}
+
+/* Flash alerts */
+.alert {
+  border-radius: 10px;
+  border: none;
+}
+
+/* Footer */
+footer {
+  font-size: .8rem;
+}
+
+/* Responsive tweaks */
+@media (max-width: 576px) {
+  .btn-group .btn {
+    padding: .2rem .45rem;
+    font-size: .8rem;
+  }
+}
