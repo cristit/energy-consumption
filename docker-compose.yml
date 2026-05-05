@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+
+  # ── Web Application ──────────────────────────────────────────────────────────
+  app:
+    build: .
+    container_name: meter-readings-app
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      SECRET_KEY: "change-me-in-production-use-a-long-random-string"
+      DATABASE_URL: "mysql+pymysql://meter_user:meter_password@db:3306/meter_db"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - meter_net
+
+  # ── MySQL Database ───────────────────────────────────────────────────────────
+  db:
+    image: mysql:8.4
+    container_name: meter-readings-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_change_me
+      MYSQL_DATABASE: meter_db
+      MYSQL_USER: meter_user
+      MYSQL_PASSWORD: meter_password
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost",
+             "-u", "meter_user", "--password=meter_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - meter_net
+
+  # ── phpMyAdmin (optional – remove if not needed) ─────────────────────────────
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: meter-readings-pma
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: db
+      PMA_USER: meter_user
+      PMA_PASSWORD: meter_password
+    depends_on:
+      - db
+    networks:
+      - meter_net
+
+volumes:
+  db_data:
+  uploads_data:
+
+networks:
+  meter_net:
+    driver: bridge
