@@ -6,3 +6,4 @@ uploads/
 .env
 *.db
 .DS_Store
+.env.local
