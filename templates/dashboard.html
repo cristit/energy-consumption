@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – Verbrauchserfassung{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h1 class="h3 mb-0"><i class="bi bi-house-door me-2 text-primary"></i>Dashboard</h1>
+  <a href="{{ url_for('add_reading') }}" class="btn btn-primary">
+    <i class="bi bi-plus-circle me-1"></i>Neue Ablesung
+  </a>
+</div>
+
+{% if not stats %}
+  <div class="card border-0 shadow-sm text-center py-5">
+    <div class="card-body">
+      <i class="bi bi-speedometer2 display-1 text-muted"></i>
+      <h4 class="mt-3">Noch keine Zähler vorhanden</h4>
+      <p class="text-muted">Legen Sie zuerst einen Zähler an, um mit dem Erfassen zu beginnen.</p>
+      <a href="{{ url_for('add_meter') }}" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-1"></i>Zähler anlegen
+      </a>
+    </div>
+  </div>
+{% else %}
+  <div class="row g-4">
+    {% for item in stats %}
+    {% set m = item.meter %}
+    {% set ti = m.type_info %}
+    <div class="col-md-6 col-xl-4">
+      <div class="card h-100 border-0 shadow-sm meter-card">
+        <div class="card-header border-0 d-flex align-items-center gap-2"
+             style="background: {{ ti.color }}18; border-left: 4px solid {{ ti.color }} !important;">
+          <i class="bi bi-{{ ti.icon }} fs-4" style="color: {{ ti.color }}"></i>
+          <div>
+            <div class="fw-semibold">{{ m.name }}</div>
+            <small class="text-muted">{{ ti.label }}
+              {% if m.meter_number %}· Nr. {{ m.meter_number }}{% endif %}
+            </small>
+          </div>
+          <span class="ms-auto badge" style="background: {{ ti.color }}">{{ ti.unit }}</span>
+        </div>
+        <div class="card-body">
+          {% if m.latest_reading %}
+            <div class="row text-center g-2">
+              <div class="col-6">
+                <div class="stat-box p-2 rounded">
+                  <div class="fs-4 fw-bold text-primary">{{ "%.3f"|format(m.latest_reading.value) }}</div>
+                  <div class="small text-muted">Letzter Stand</div>
+                  <div class="small text-muted">{{ m.latest_reading.read_at.strftime('%d.%m.%Y') }}</div>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="stat-box p-2 rounded">
+                  {% if item.monthly_est is not none %}
+                    <div class="fs-4 fw-bold" style="color:{{ ti.color }}">{{ "%.2f"|format(item.monthly_est) }}</div>
+                    <div class="small text-muted">~ pro Monat</div>
+                  {% else %}
+                    <div class="fs-4 fw-bold text-muted">–</div>
+                    <div class="small text-muted">noch keine Daten</div>
+                  {% endif %}
+                  <div class="small text-muted">{{ ti.unit }}</div>
+                </div>
+              </div>
+            </div>
+            {% set cons = m.latest_reading.consumption_since_previous %}
+            {% if cons %}
+            <div class="mt-2 small text-muted text-center">
+              Letzte Periode: <strong>{{ cons.amount }} {{ ti.unit }}</strong>
+              in {{ cons.days }} Tagen
+              ({{ cons.per_day }} {{ ti.unit }}/Tag)
+            </div>
+            {% endif %}
+          {% else %}
+            <p class="text-muted text-center my-3">Noch keine Ablesung vorhanden.</p>
+          {% endif %}
+        </div>
+        <div class="card-footer bg-transparent border-0 d-flex gap-2 justify-content-end pb-3">
+          <a href="{{ url_for('readings', meter_id=m.id) }}"
+             class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-list-check"></i> Verlauf
+          </a>
+          <a href="{{ url_for('analysis') }}?meter_id={{ m.id }}"
+             class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-bar-chart-line"></i> Analyse
+          </a>
+          <a href="{{ url_for('add_reading') }}?meter_id={{ m.id }}"
+             class="btn btn-sm btn-primary">
+            <i class="bi bi-plus"></i> Ablesen
+          </a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}
