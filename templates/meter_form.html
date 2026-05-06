@@ -327,15 +327,20 @@ function updateFieldMapping() {
   section.classList.remove('d-none');
 
   rows.innerHTML = letters.map(letter => {
-    const saved = _existingFieldMap[letter];
-    const isMainValue = saved === 'value' || (letter === 'E' && saved === undefined);
+    const saved   = _existingFieldMap[letter];
+    const isText  = letter === 'T';
 
-    let opts = `<option value=""${!saved && letter !== 'E' ? ' selected' : ''}>(ignorieren)</option>`;
-    opts += `<option value="value"${saved === 'value' || (letter === 'E' && !saved) ? ' selected' : ''}>Hauptwert</option>`;
-    _meterFields.forEach(f => {
-      const sel = saved == f.id ? ' selected' : '';
-      opts += `<option value="${f.id}"${sel}>${f.label}${f.unit ? ' (' + f.unit + ')' : ''}</option>`;
-    });
+    let opts = `<option value=""${!saved && letter !== 'E' && !isText ? ' selected' : ''}>(ignorieren)</option>`;
+    if (!isText) {
+      opts += `<option value="value"${saved === 'value' || (letter === 'E' && !saved) ? ' selected' : ''}>Hauptwert</option>`;
+    }
+    opts += `<option value="notes"${saved === 'notes' || (isText && !saved) ? ' selected' : ''}>Notizen (Freitext)</option>`;
+    if (!isText) {
+      _meterFields.forEach(f => {
+        const sel = saved == f.id ? ' selected' : '';
+        opts += `<option value="${f.id}"${sel}>${f.label}${f.unit ? ' (' + f.unit + ')' : ''}</option>`;
+      });
+    }
 
     return `<div class="col-sm-6 col-md-4">
       <label class="form-label fw-semibold"><code>${letter}</code></label>
