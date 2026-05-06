@@ -3,8 +3,10 @@
 
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-md-7 col-lg-6">
-    <div class="card border-0 shadow-sm">
+  <div class="col-md-9 col-lg-8">
+
+    <!-- ── Zähler-Stammdaten ─────────────────────────────────────────────── -->
+    <div class="card border-0 shadow-sm mb-4">
       <div class="card-header bg-primary text-white">
         <h5 class="mb-0">
           <i class="bi bi-{{ 'pencil' if meter else 'plus-circle' }} me-2"></i>
@@ -13,56 +15,53 @@
       </div>
       <div class="card-body p-4">
         <form method="post">
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
-            <input type="text" name="name" class="form-control"
-                   value="{{ meter.name if meter else '' }}"
-                   placeholder="z.B. Wasser Keller, Gaszähler EG …" required>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Typ <span class="text-danger">*</span></label>
-            <select name="meter_type" class="form-select" required>
-              {% for key, info in meter_types.items() %}
-              <option value="{{ key }}"
-                {% if meter and meter.meter_type == key %}selected{% endif %}>
-                {{ info.label }} ({{ info.unit }})
-              </option>
-              {% endfor %}
-            </select>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Zählernummer</label>
-            <input type="text" name="meter_number" class="form-control"
-                   value="{{ meter.meter_number if meter else '' }}"
-                   placeholder="Optional – Seriennummer auf dem Gerät">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Standort</label>
-            <input type="text" name="location" class="form-control"
-                   value="{{ meter.location if meter else '' }}"
-                   placeholder="z.B. Keller, Hauswirtschaftsraum …">
-          </div>
-
-          {% if meter %}
-          <div class="mb-3">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="active" id="active"
-                     {% if meter.active %}checked{% endif %}>
-              <label class="form-check-label" for="active">Zähler aktiv</label>
+          <div class="row g-3">
+            <div class="col-sm-8">
+              <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+              <input type="text" name="name" class="form-control"
+                     value="{{ meter.name if meter else '' }}"
+                     placeholder="z.B. Wasser Keller, Gaszähler EG …" required>
             </div>
+            <div class="col-sm-4">
+              <label class="form-label fw-semibold">Typ <span class="text-danger">*</span></label>
+              <select name="meter_type" class="form-select" required>
+                {% for key, info in meter_types.items() %}
+                <option value="{{ key }}"
+                  {% if meter and meter.meter_type == key %}selected{% endif %}>
+                  {{ info.label }} ({{ info.unit }})
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label fw-semibold">Zählernummer</label>
+              <input type="text" name="meter_number" class="form-control"
+                     value="{{ meter.meter_number if meter else '' }}"
+                     placeholder="Seriennummer auf dem Gerät">
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label fw-semibold">Standort</label>
+              <input type="text" name="location" class="form-control"
+                     value="{{ meter.location if meter else '' }}"
+                     placeholder="z.B. Keller, Hauswirtschaftsraum …">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Notizen</label>
+              <textarea name="notes" class="form-control" rows="2"
+                        placeholder="Beliebige Anmerkungen …">{{ meter.notes if meter else '' }}</textarea>
+            </div>
+            {% if meter %}
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="active" id="active"
+                       {% if meter.active %}checked{% endif %}>
+                <label class="form-check-label" for="active">Zähler aktiv</label>
+              </div>
+            </div>
+            {% endif %}
           </div>
-          {% endif %}
 
-          <div class="mb-4">
-            <label class="form-label fw-semibold">Notizen</label>
-            <textarea name="notes" class="form-control" rows="2"
-                      placeholder="Beliebige Anmerkungen …">{{ meter.notes if meter else '' }}</textarea>
-          </div>
-
-          <div class="d-flex gap-2 justify-content-end">
+          <div class="d-flex gap-2 justify-content-end mt-4">
             <a href="{{ url_for('meters') }}" class="btn btn-outline-secondary">Abbrechen</a>
             <button type="submit" class="btn btn-primary">
               <i class="bi bi-check-lg me-1"></i>Speichern
@@ -71,6 +70,187 @@
         </form>
       </div>
     </div>
+
+    <!-- ── Zusätzliche Felder (nur im Edit-Modus) ────────────────────────── -->
+    {% if meter %}
+    <div class="card border-0 shadow-sm" id="fields">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-sliders me-2 text-primary"></i>Zusätzliche Felder beim Ablesen
+        </h6>
+        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addFieldModal">
+          <i class="bi bi-plus-circle me-1"></i>Feld hinzufügen
+        </button>
+      </div>
+
+      <div class="card-body p-0">
+        {% if meter.fields %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Bezeichnung</th>
+                <th>Typ</th>
+                <th>Einheit / Optionen</th>
+                <th>Pflichtfeld</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for f in meter.fields %}
+              <tr>
+                <td class="fw-semibold">
+                  <i class="bi bi-{{ field_types[f.field_type].icon }} me-2 text-muted"></i>
+                  {{ f.label }}
+                </td>
+                <td><span class="badge bg-secondary">{{ field_types[f.field_type].label }}</span></td>
+                <td class="text-muted small">
+                  {% if f.field_type == 'select' %}
+                    {{ f.options_list | join(', ') }}
+                  {% else %}
+                    {{ f.unit or '–' }}
+                  {% endif %}
+                </td>
+                <td>
+                  {% if f.required %}
+                    <span class="badge bg-danger">Pflicht</span>
+                  {% else %}
+                    <span class="text-muted small">optional</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-secondary"
+                          onclick="openEditField({{ f.id }}, '{{ f.label|e }}', '{{ f.field_type }}',
+                                  '{{ f.unit or '' }}', '{{ f.options_list|join(',') }}', {{ f.required|lower }})"
+                          title="Bearbeiten">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-danger ms-1"
+                          onclick="confirmDelete(
+                            '{{ url_for('delete_meter_field', meter_id=meter.id, field_id=f.id) }}',
+                            'Feld &bdquo;{{ f.label|e }}&ldquo; wirklich löschen? Alle gespeicherten Werte gehen verloren.')"
+                          title="Löschen">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4">
+          <i class="bi bi-sliders display-6"></i>
+          <p class="mt-2 mb-0 small">Noch keine zusätzlichen Felder definiert.<br>
+            Beispiele: Temperatur, Betriebsstunden, Druck …</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
   </div>
 </div>
+
+<!-- ── Modals ─────────────────────────────────────────────────────────────── -->
+{% if meter %}
+
+<!-- Add Field Modal -->
+<div class="modal fade" id="addFieldModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('add_meter_field', meter_id=meter.id) }}">
+        <div class="modal-header border-0">
+          <h5 class="modal-title"><i class="bi bi-plus-circle me-2 text-primary"></i>Feld hinzufügen</h5>
+          <button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% include '_field_form_body.html' %}
+        </div>
+        <div class="modal-footer border-0">
+          <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-check-lg me-1"></i>Hinzufügen
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Field Modal -->
+<div class="modal fade" id="editFieldModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" id="editFieldForm">
+        <div class="modal-header border-0">
+          <h5 class="modal-title"><i class="bi bi-pencil me-2 text-primary"></i>Feld bearbeiten</h5>
+          <button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% include '_field_form_body.html' %}
+        </div>
+        <div class="modal-footer border-0">
+          <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-check-lg me-1"></i>Speichern
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Delete modal (shared) -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header border-0">
+        <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Löschen</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="deleteModalBody"></div>
+      <div class="modal-footer border-0">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
+        <form id="deleteForm" method="post">
+          <button class="btn btn-danger btn-sm">Löschen</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if meter %}
+<script>
+function openEditField(id, label, type, unit, options, required) {
+  const form = document.getElementById('editFieldForm');
+  form.action = `/meters/{{ meter.id }}/fields/${id}/edit`;
+  form.querySelector('[name="label"]').value   = label;
+  form.querySelector('[name="unit"]').value    = unit;
+  form.querySelector('[name="options"]').value = options;
+  form.querySelector('[name="required"]').checked = required;
+  const sel = form.querySelector('[name="field_type"]');
+  sel.value = type;
+  sel.dispatchEvent(new Event('change'));
+  new bootstrap.Modal(document.getElementById('editFieldModal')).show();
+}
+
+// show/hide unit & options depending on field type
+function wireTypeSelect(sel) {
+  const form = sel.closest('form');
+  const unitRow    = form.querySelector('.unit-row');
+  const optionsRow = form.querySelector('.options-row');
+  const t = sel.value;
+  unitRow.classList.toggle('d-none',    t === 'boolean' || t === 'select');
+  optionsRow.classList.toggle('d-none', t !== 'select');
+}
+document.querySelectorAll('[name="field_type"]').forEach(s => {
+  s.addEventListener('change', () => wireTypeSelect(s));
+  wireTypeSelect(s);
+});
+</script>
+{% endif %}
 {% endblock %}
