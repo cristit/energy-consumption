@@ -424,17 +424,22 @@ def version():
 # ── Init ───────────────────────────────────────────────────────────────────────
 def _run_migrations():
     """Add columns that may be missing in existing databases."""
-    migrations = [
-        "ALTER TABLE meters ADD COLUMN import_mask TEXT",
-        "ALTER TABLE meters ADD COLUMN import_field_map TEXT",
+    needed = [
+        ('meters', 'import_mask',      'TEXT'),
+        ('meters', 'import_field_map', 'TEXT'),
     ]
     with db.engine.connect() as conn:
-        for stmt in migrations:
-            try:
-                conn.execute(text(stmt))
+        for table, column, coltype in needed:
+            exists = conn.execute(text(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() "
+                "AND TABLE_NAME = :t AND COLUMN_NAME = :c"
+            ), {'t': table, 'c': column}).scalar()
+            if not exists:
+                conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"
+                ))
                 conn.commit()
-            except Exception:
-                pass  # column already exists
 
 with app.app_context():
     db.create_all()
