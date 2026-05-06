@@ -48,7 +48,7 @@
             <td>
               {% if m.latest_reading %}
                 {{ "%.3f"|format(m.latest_reading.value) }} {{ ti.unit }}
-                <div class="small text-muted">{{ m.latest_reading.read_at.strftime('%d.%m.%Y') }}</div>
+                <div class="small text-muted">{{ m.latest_reading.read_at | berlin('%d.%m.%Y') }}</div>
               {% else %}
                 <span class="text-muted">–</span>
               {% endif %}
