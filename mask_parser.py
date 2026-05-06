@@ -4,14 +4,15 @@ Mask parser for structured meter data import.
 Mask tokens:
   DD, MM, YYYY   – date (day, month, year)
   HH, mm, ss     – time (hour, minute, second)
-  E...E          – main meter reading value (any sequence of E's + decimal separator)
-  A...A, B...B   – custom field values (any uppercase letter except D/M/Y/H)
+  E...E          – main meter reading value (numeric, decimal separator allowed)
+  A...A, B...B   – custom field values (numeric, any uppercase letter except D/M/Y/H/T)
+  T...T          – free text capture to end of line (e.g. notes)
 
 Literal characters (., :, /, space, etc.) must appear as-is in the data.
 
 Example:
-  mask  → "DD.MM.YYYY HH:mm EEEE,EEE AAA,AA/BBB,BB/CCC,CC"
-  data  → "02.01.2026 11:52 5835,679 37,1/42,1/42,1"
+  mask  → "DD.MM.YYYY HH:mm EEEEE,EEE AAA,AAA/BBB,BBB/CCC,CCC - TTTTTTTTTTT"
+  data  → "02.01.2026 11:52 5835,679 37,1/42,1/42,1 - Keller Zähler"
 """
 import re
 from datetime import datetime
@@ -25,8 +26,10 @@ _DT_TOKENS = [
     ('mm',   'minute', r'(\d{2})'),
     ('ss',   'second', r'(\d{2})'),
 ]
-# Uppercase letters that belong to date/time tokens – cannot be value letters
+# Uppercase letters reserved for date/time tokens
 _DT_UPPER = frozenset('DYMH')
+# Uppercase letters that capture free text (to end of line)
+_TEXT_UPPER = frozenset('T')
 
 
 def _tokenize(mask):
@@ -34,6 +37,7 @@ def _tokenize(mask):
     Yield (token_type, name_or_char, metadata) for each segment of the mask.
       ('dt',      'year'|'month'|..., seq_str)
       ('value',   letter,             has_decimal_sep: bool)
+      ('text',    letter,             None)           ← free-text capture
       ('literal', char,               None)
     """
     i, n = 0, len(mask)
@@ -51,39 +55,45 @@ def _tokenize(mask):
             continue
 
         c = mask[i]
-        # Value letter: uppercase, not reserved for date/time
         if c.isupper() and c not in _DT_UPPER:
             letter = c
+            # Consume all consecutive same-letter chars
             j = i
-            has_decimal = False
-            # Consume the full block: same letter, possibly with internal separators
-            while j < n:
-                if mask[j] == letter:
-                    j += 1
-                elif not mask[j].isalpha():
-                    # Peek ahead: if same letter follows, this is a decimal separator
-                    k = j
-                    while k < n and not mask[k].isalpha():
-                        k += 1
-                    if k < n and mask[k] == letter:
-                        has_decimal = True
-                        j = k  # jump to next letter group (separator included in regex)
+            while j < n and mask[j] == letter:
+                j += 1
+
+            if letter in _TEXT_UPPER:
+                yield 'text', letter, None
+                i = j
+            else:
+                # Numeric value: may contain internal decimal separator
+                has_decimal = False
+                while j < n:
+                    if mask[j] == letter:
+                        j += 1
+                    elif not mask[j].isalpha():
+                        k = j
+                        while k < n and not mask[k].isalpha():
+                            k += 1
+                        if k < n and mask[k] == letter:
+                            has_decimal = True
+                            j = k
+                        else:
+                            break
                     else:
                         break
-                else:
-                    break
-            yield 'value', letter, has_decimal
-            i = j
+                yield 'value', letter, has_decimal
+                i = j
         else:
             yield 'literal', c, None
             i += 1
 
 
 def extract_value_letters(mask):
-    """Return ordered list of unique value letters found in the mask."""
+    """Return ordered list of unique value/text letters found in the mask."""
     seen, result = set(), []
     for ttype, val, _ in _tokenize(mask):
-        if ttype == 'value' and val not in seen:
+        if ttype in ('value', 'text') and val not in seen:
             seen.add(val)
             result.append(val)
     return result
@@ -92,10 +102,10 @@ def extract_value_letters(mask):
 def mask_to_regex(mask):
     """
     Convert a mask string to (compiled_pattern, groups_list).
-    groups_list is in capture-group order: e.g. ['day','month','year','hour','minute','E','A','B','C']
+    groups_list is in capture-group order.
     """
     pattern = ''
-    groups = []
+    groups  = []
     dt_regex = {name: rx for _, name, rx in _DT_TOKENS}
 
     for ttype, val, extra in _tokenize(mask):
@@ -107,6 +117,9 @@ def mask_to_regex(mask):
                 pattern += r'(\d+(?:[,\.]\d+)+)'
             else:
                 pattern += r'(\d+(?:[,\.]\d+)?)'
+            groups.append(val)
+        elif ttype == 'text':
+            pattern += r'(.+)'
             groups.append(val)
         else:  # literal
             pattern += re.escape(val)
@@ -125,7 +138,6 @@ def normalize_number(s):
     if ',' in s and '.' not in s:
         return float(s.replace(',', '.'))
     if '.' in s and ',' in s:
-        # Thousands dot + decimal comma (e.g. German format)
         return float(s.replace('.', '').replace(',', '.'))
     return float(s)
 
@@ -134,8 +146,8 @@ def parse_line(line, mask):
     """
     Parse one data line using the mask.
     Returns (result_dict, error_str).
-    On success: result_dict contains 'read_at' (datetime) + one key per value letter.
-    On failure: result_dict is None, error_str describes the problem.
+    result_dict contains 'read_at' (datetime) + one key per value/text letter.
+    Text letters (T) are kept as strings; value letters are converted to float.
     """
     try:
         regex, groups = mask_to_regex(mask)
@@ -148,7 +160,9 @@ def parse_line(line, mask):
 
     raw = dict(zip(groups, m.groups()))
 
-    # Build datetime
+    # Determine which letters are text captures
+    text_letters = {val for ttype, val, _ in _tokenize(mask) if ttype == 'text'}
+
     try:
         dt = datetime(
             year   = int(raw.get('year',   2000)),
@@ -163,13 +177,15 @@ def parse_line(line, mask):
 
     result = {'read_at': dt}
 
-    # Parse numeric values
     for key, val in raw.items():
         if key in ('year', 'month', 'day', 'hour', 'minute', 'second'):
             continue
-        try:
-            result[key] = normalize_number(val)
-        except ValueError:
-            return None, f'Ungültiger Zahlenwert für {key!r}: {val!r}'
+        if key in text_letters:
+            result[key] = val.strip()
+        else:
+            try:
+                result[key] = normalize_number(val)
+            except ValueError:
+                return None, f'Ungültiger Zahlenwert für {key!r}: {val!r}'
 
     return result, None
