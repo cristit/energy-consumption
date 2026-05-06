@@ -83,8 +83,22 @@
                 <span class="text-muted small">–</span>
               {% endif %}
             </td>
-            <td class="text-muted small" style="max-width:160px">
-              {{ r.notes | truncate(40) if r.notes else '' }}
+            <td class="small" style="max-width:200px">
+              {% for rv in r.extra_values %}
+                <span class="text-muted">{{ rv.field.label }}:</span>
+                {% if rv.field.field_type == 'boolean' %}
+                  <span class="badge {{ 'bg-success' if rv.value == '1' else 'bg-secondary' }}">
+                    {{ 'Ja' if rv.value == '1' else 'Nein' }}
+                  </span>
+                {% else %}
+                  <strong>{{ rv.value }}{% if rv.field.unit %} {{ rv.field.unit }}{% endif %}</strong>
+                {% endif %}
+                {% if not loop.last %}&nbsp;· {% endif %}
+              {% endfor %}
+              {% if r.notes %}
+                {% if r.extra_values %}<br>{% endif %}
+                <span class="text-muted">{{ r.notes | truncate(40) }}</span>
+              {% endif %}
             </td>
             <td class="text-end">
               <button class="btn btn-sm btn-outline-danger"
