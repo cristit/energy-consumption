@@ -6,7 +6,9 @@ from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, send_from_directory)
 from werkzeug.utils import secure_filename
 from sqlalchemy import func
+import json
 from models import db, Meter, Reading, MeterField, ReadingValue, METER_TYPES, FIELD_TYPES
+from mask_parser import parse_line, extract_value_letters
 from config import Config
 
 app = Flask(__name__)
@@ -102,6 +104,17 @@ def edit_meter(meter_id):
         meter.location     = request.form.get('location', '').strip()
         meter.notes        = request.form.get('notes', '').strip()
         meter.active       = 'active' in request.form
+
+        mask = request.form.get('import_mask', '').strip()
+        meter.import_mask = mask or None
+        fmap = {}
+        for key, val in request.form.items():
+            if key.startswith('field_map_') and val:
+                letter = key[len('field_map_'):]
+                if len(letter) == 1 and letter.isalpha():
+                    fmap[letter] = 'value' if val == 'value' else int(val)
+        meter.import_field_map = json.dumps(fmap) if fmap else None
+
         db.session.commit()
         flash(f'Zähler „{meter.name}" wurde aktualisiert.', 'success')
         return redirect(url_for('edit_meter', meter_id=meter.id))
@@ -317,7 +330,92 @@ def monthly_summary(meter_id):
     })
 
 
-# ── Version ────────────────────────────────────────────────────────────────────
+# ── Import ─────────────────────────────────────────────────────────────────────
+@app.route('/meters/<int:meter_id>/import', methods=['GET', 'POST'])
+def import_readings_view(meter_id):
+    meter = Meter.query.get_or_404(meter_id)
+
+    if request.method == 'POST':
+        raw_data = request.form.get('data', '')
+        fmap     = json.loads(meter.import_field_map or '{}')
+        val_letter = next((l for l, v in fmap.items() if v == 'value'), 'E')
+        imported = skipped = errors = 0
+
+        for line in raw_data.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parsed, err = parse_line(line, meter.import_mask)
+            if err:
+                errors += 1
+                continue
+            value  = parsed.get(val_letter)
+            read_at = parsed.get('read_at')
+            if value is None or read_at is None:
+                errors += 1
+                continue
+            read_at_utc = read_at.replace(tzinfo=BERLIN)\
+                                 .astimezone(timezone.utc).replace(tzinfo=None)
+            if Reading.query.filter_by(meter_id=meter.id, read_at=read_at_utc).first():
+                skipped += 1
+                continue
+            r = Reading(meter_id=meter.id, value=value, read_at=read_at_utc)
+            db.session.add(r)
+            db.session.flush()
+            for letter, fid in fmap.items():
+                if fid == 'value' or letter not in parsed:
+                    continue
+                db.session.add(ReadingValue(
+                    reading_id=r.id, field_id=int(fid), value=str(parsed[letter])
+                ))
+            imported += 1
+
+        db.session.commit()
+        parts = [f'{imported} importiert']
+        if skipped: parts.append(f'{skipped} Duplikat(e) übersprungen')
+        if errors:  parts.append(f'{errors} Fehler')
+        flash(', '.join(parts) + '.', 'success' if not errors else 'warning')
+        return redirect(url_for('readings', meter_id=meter_id))
+
+    return render_template('import.html', meter=meter)
+
+
+@app.route('/api/meters/<int:meter_id>/parse-preview', methods=['POST'])
+def import_preview(meter_id):
+    meter = Meter.query.get_or_404(meter_id)
+    body  = request.json or {}
+    mask  = body.get('mask') or meter.import_mask
+    if not mask:
+        return jsonify({'error': 'Keine Maske definiert'}), 400
+
+    fmap       = json.loads(meter.import_field_map or '{}')
+    val_letter = next((l for l, v in fmap.items() if v == 'value'), 'E')
+    results    = []
+
+    for line in body.get('lines', [])[:100]:
+        line = line.strip()
+        if not line:
+            continue
+        parsed, err = parse_line(line, mask)
+        if err:
+            results.append({'line': line, 'ok': False, 'error': err})
+            continue
+        row = {
+            'line':    line,
+            'ok':      True,
+            'read_at': parsed['read_at'].strftime('%d.%m.%Y %H:%M'),
+            'value':   parsed.get(val_letter),
+            'fields':  {},
+        }
+        for letter, fid in fmap.items():
+            if fid != 'value' and letter in parsed:
+                row['fields'][str(fid)] = parsed[letter]
+        results.append(row)
+
+    return jsonify({'rows': results})
+
+
+# ── Version ─────────────────────────────────────────────────────────────────────
 @app.route('/api/version')
 def version():
     return jsonify({'version': APP_VERSION})
