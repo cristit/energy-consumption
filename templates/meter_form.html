@@ -14,7 +14,7 @@
         </h5>
       </div>
       <div class="card-body p-4">
-        <form method="post">
+        <form method="post" id="meterEditForm">
           <div class="row g-3">
             <div class="col-sm-8">
               <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
@@ -219,6 +219,57 @@
     </div>
   </div>
 </div>
+    <!-- ── Import-Maske ──────────────────────────────────────────────────── -->
+    {% if meter %}
+    <div class="card border-0 shadow-sm mt-4" id="import-mask">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-file-earmark-arrow-up me-2 text-primary"></i>Import-Maske
+        </h6>
+        {% if meter.import_mask %}
+        <a href="{{ url_for('import_readings_view', meter_id=meter.id) }}"
+           class="btn btn-sm btn-success">
+          <i class="bi bi-upload me-1"></i>Daten importieren
+        </a>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Maske <span class="text-muted fw-normal">(Teil des Speichern-Formulars oben)</span></label>
+          <input type="text" name="import_mask" id="importMask" class="form-control font-monospace"
+                 value="{{ meter.import_mask or '' }}"
+                 form="meterEditForm"
+                 placeholder="z.B.  DD.MM.YYYY HH:mm EEEE,EEE AAA,AA/BBB,BB/CCC,CC">
+          <div class="form-text mt-1">
+            <strong>Datum/Zeit:</strong> <code>DD MM YYYY HH mm ss</code> &nbsp;|&nbsp;
+            <strong>Hauptwert:</strong> <code>E...E</code> &nbsp;|&nbsp;
+            <strong>Zusatzfelder:</strong> <code>A...A B...B C...C</code> …
+            (Buchstaben = Dezimalstellen; Trennzeichen zwischen gleichen Buchstaben = Dezimalkomma)
+          </div>
+        </div>
+
+        <!-- Field mapping (dynamic via JS) -->
+        <div id="fieldMappingSection" class="mb-3 d-none">
+          <label class="form-label fw-semibold">Feldzuordnung</label>
+          <div id="fieldMappingRows" class="row g-2"></div>
+        </div>
+
+        <!-- Live test -->
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Test-Zeile</label>
+          <div class="input-group">
+            <input type="text" id="testLine" class="form-control font-monospace"
+                   placeholder="Beispiel-Zeile einfügen …">
+            <button type="button" class="btn btn-outline-secondary" onclick="testMask()">
+              <i class="bi bi-play-fill me-1"></i>Testen
+            </button>
+          </div>
+          <div id="testResult" class="mt-2"></div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
 {% endif %}
 {% endblock %}
 
@@ -251,6 +302,81 @@ document.querySelectorAll('[name="field_type"]').forEach(s => {
   s.addEventListener('change', () => wireTypeSelect(s));
   wireTypeSelect(s);
 });
+
+// ── Import mask ─────────────────────────────────────────────────
+const _existingFieldMap = {{ (meter.import_field_map or '{}') | tojson | safe }};
+const _meterFields = [{% for f in meter.fields %}{id:{{f.id}},label:"{{f.label|e}}",unit:"{{f.unit or ''}}"}{% if not loop.last %},{% endif %}{% endfor %}];
+
+function extractLetters(mask) {
+  let s = mask.replace(/YYYY|DD|MM|HH|mm|ss/g, '');
+  const seen = [], result = [];
+  for (const c of s) {
+    if (c >= 'A' && c <= 'Z' && !seen.includes(c)) { seen.push(c); result.push(c); }
+  }
+  return result;
+}
+
+function updateFieldMapping() {
+  const mask   = (document.getElementById('importMask')?.value || '').trim();
+  const letters = extractLetters(mask);
+  const section = document.getElementById('fieldMappingSection');
+  const rows    = document.getElementById('fieldMappingRows');
+  if (!section || !rows) return;
+
+  if (!letters.length) { section.classList.add('d-none'); rows.innerHTML = ''; return; }
+  section.classList.remove('d-none');
+
+  rows.innerHTML = letters.map(letter => {
+    const saved = _existingFieldMap[letter];
+    const isMainValue = saved === 'value' || (letter === 'E' && saved === undefined);
+
+    let opts = `<option value=""${!saved && letter !== 'E' ? ' selected' : ''}>(ignorieren)</option>`;
+    opts += `<option value="value"${saved === 'value' || (letter === 'E' && !saved) ? ' selected' : ''}>Hauptwert</option>`;
+    _meterFields.forEach(f => {
+      const sel = saved == f.id ? ' selected' : '';
+      opts += `<option value="${f.id}"${sel}>${f.label}${f.unit ? ' (' + f.unit + ')' : ''}</option>`;
+    });
+
+    return `<div class="col-sm-6 col-md-4">
+      <label class="form-label fw-semibold"><code>${letter}</code></label>
+      <select name="field_map_${letter}" class="form-select form-select-sm">${opts}</select>
+    </div>`;
+  }).join('');
+}
+
+async function testMask() {
+  const mask = (document.getElementById('importMask')?.value || '').trim();
+  const line = (document.getElementById('testLine')?.value  || '').trim();
+  const out  = document.getElementById('testResult');
+  if (!mask || !line) { out.innerHTML = '<span class="text-muted small">Maske und Testzeile eingeben.</span>'; return; }
+
+  try {
+    const res  = await fetch('/api/meters/{{ meter.id }}/parse-preview', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mask, lines: [line]})
+    });
+    const data = await res.json();
+    const row  = data.rows?.[0];
+    if (!row) { out.innerHTML = '<span class="text-danger small">Keine Antwort.</span>'; return; }
+    if (row.error) {
+      out.innerHTML = `<span class="text-danger small"><i class="bi bi-x-circle me-1"></i>${row.error}</span>`;
+    } else {
+      let html = `<span class="text-success small"><i class="bi bi-check-circle me-1"></i>`;
+      html += `<strong>${row.read_at}</strong>`;
+      if (row.value !== undefined) html += ` &nbsp; Wert: <strong>${row.value}</strong>`;
+      const extras = Object.entries(row).filter(([k]) => !['read_at','value','line'].includes(k));
+      extras.forEach(([k,v]) => { html += ` &nbsp; ${k}: <strong>${v}</strong>`; });
+      html += '</span>';
+      out.innerHTML = html;
+    }
+  } catch(e) {
+    out.innerHTML = `<span class="text-danger small">${e.message}</span>`;
+  }
+}
+
+document.getElementById('importMask')?.addEventListener('input', updateFieldMapping);
+updateFieldMapping();
 </script>
 {% endif %}
 {% endblock %}
