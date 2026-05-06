@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Import – {{ meter.name }} – Verbrauchserfassung{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-10 col-lg-9">
+
+    <div class="d-flex align-items-center mb-4 gap-3">
+      <a href="{{ url_for('edit_meter', meter_id=meter.id) }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <h1 class="h4 mb-0">
+        <i class="bi bi-file-earmark-arrow-up me-2 text-primary"></i>
+        Daten importieren – <span class="text-muted fw-normal">{{ meter.name }}</span>
+      </h1>
+    </div>
+
+    {% if not meter.import_mask %}
+    <div class="alert alert-warning">
+      <i class="bi bi-exclamation-triangle me-2"></i>
+      Keine Import-Maske definiert. Bitte zuerst in den
+      <a href="{{ url_for('edit_meter', meter_id=meter.id) }}#import-mask">Zähler-Einstellungen</a>
+      eine Maske anlegen.
+    </div>
+    {% else %}
+
+    <!-- Info row -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body py-3">
+        <div class="row g-2 align-items-center">
+          <div class="col-sm-3 text-muted small fw-semibold">Maske</div>
+          <div class="col-sm-9 font-monospace">{{ meter.import_mask }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 1 – paste / preview -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-1-circle me-2 text-primary"></i>Daten einfügen &amp; Vorschau
+        </h6>
+      </div>
+      <div class="card-body">
+        <textarea id="rawData" class="form-control font-monospace mb-3" rows="8"
+                  placeholder="Datenzeilen hier einfügen …"></textarea>
+        <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadPreview()">
+          <i class="bi bi-play-fill me-1"></i>Vorschau laden
+        </button>
+        <span id="previewStatus" class="ms-3 small text-muted"></span>
+      </div>
+    </div>
+
+    <!-- Step 2 – preview table -->
+    <div id="previewSection" class="d-none mb-4">
+      <div class="card border-0 shadow-sm">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h6 class="mb-0 fw-semibold">
+            <i class="bi bi-2-circle me-2 text-primary"></i>Vorschau
+          </h6>
+          <span id="previewSummary" class="badge bg-secondary"></span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0" id="previewTable">
+              <thead class="table-light">
+                <tr id="previewHead"></tr>
+              </thead>
+              <tbody id="previewBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card-footer border-0 d-flex justify-content-end gap-2">
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetPreview()">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Zurücksetzen
+          </button>
+          <form method="post" id="importForm">
+            <input type="hidden" name="data" id="importData">
+            <button type="button" class="btn btn-success btn-sm" id="importBtn" onclick="submitImport()">
+              <i class="bi bi-upload me-1"></i>Importieren
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if meter.import_mask %}
+<script>
+const _meterId   = {{ meter.id }};
+const _fieldMap  = {{ (meter.import_field_map or '{}') | tojson | safe }};
+const _fields    = {
+  {% for f in meter.fields %}
+  "{{ f.id }}": { label: "{{ f.label|e }}", unit: "{{ f.unit or '' }}" }{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
+
+let _previewRows = [];
+
+async function loadPreview() {
+  const raw  = document.getElementById('rawData').value.trim();
+  const stat = document.getElementById('previewStatus');
+  if (!raw) { stat.textContent = 'Keine Daten eingegeben.'; return; }
+
+  stat.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Lade…';
+
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  try {
+    const res  = await fetch(`/api/meters/${_meterId}/parse-preview`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ lines })
+    });
+    const data = await res.json();
+    _previewRows = data.rows || [];
+    renderPreview(_previewRows);
+    stat.textContent = '';
+  } catch(e) {
+    stat.innerHTML = `<span class="text-danger">${e.message}</span>`;
+  }
+}
+
+function renderPreview(rows) {
+  if (!rows.length) {
+    document.getElementById('previewStatus').textContent = 'Keine Zeilen erkannt.';
+    return;
+  }
+
+  const ok  = rows.filter(r => r.ok).length;
+  const bad = rows.length - ok;
+  document.getElementById('previewSummary').textContent =
+    `${ok} OK${bad ? ' · ' + bad + ' Fehler' : ''}`;
+  document.getElementById('previewSummary').className =
+    'badge ' + (bad ? 'bg-warning text-dark' : 'bg-success');
+
+  // Build dynamic header from first OK row
+  const firstOk = rows.find(r => r.ok);
+  const head    = document.getElementById('previewHead');
+  const body    = document.getElementById('previewBody');
+  head.innerHTML = '';
+  body.innerHTML = '';
+
+  const cols = ['Datum / Zeit', 'Wert'];
+  const fieldIds = [];
+  if (firstOk?.fields) {
+    Object.keys(firstOk.fields).forEach(fid => {
+      const f = _fields[fid];
+      cols.push(f ? f.label : `Feld ${fid}`);
+      fieldIds.push(fid);
+    });
+  }
+  cols.push('Zeile');
+  head.innerHTML = cols.map(c => `<th>${c}</th>`).join('') + '<th></th>';
+
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    if (!r.ok) {
+      tr.className = 'table-danger';
+      tr.innerHTML = `<td colspan="${cols.length}" class="text-danger small">
+        <i class="bi bi-x-circle me-1"></i>${r.error}
+        <span class="text-muted ms-2 font-monospace">${escHtml(r.line)}</span></td><td></td>`;
+    } else {
+      tr.className = 'table-success bg-opacity-25';
+      let cells = `<td>${escHtml(r.read_at)}</td><td class="fw-semibold">${r.value ?? '–'}</td>`;
+      fieldIds.forEach(fid => {
+        const val = r.fields?.[fid] ?? '–';
+        const unit = _fields[fid]?.unit || '';
+        cells += `<td>${val}${unit ? ' <small class="text-muted">' + unit + '</small>' : ''}</td>`;
+      });
+      cells += `<td class="font-monospace small text-muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                    title="${escHtml(r.line)}">${escHtml(r.line)}</td>`;
+      tr.innerHTML = cells + '<td><i class="bi bi-check text-success"></i></td>';
+    }
+    body.appendChild(tr);
+  });
+
+  document.getElementById('previewSection').classList.remove('d-none');
+  document.getElementById('importBtn').disabled = ok === 0;
+}
+
+function resetPreview() {
+  _previewRows = [];
+  document.getElementById('previewSection').classList.add('d-none');
+  document.getElementById('rawData').value = '';
+  document.getElementById('previewStatus').textContent = '';
+}
+
+function submitImport() {
+  document.getElementById('importData').value =
+    document.getElementById('rawData').value;
+  document.getElementById('importForm').submit();
+}
+
+function escHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+</script>
+{% endif %}
+{% endblock %}
