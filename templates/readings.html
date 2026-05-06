@@ -52,8 +52,8 @@
           {% set cons = r.consumption_since_previous %}
           <tr>
             <td>
-              <div>{{ r.read_at.strftime('%d.%m.%Y') }}</div>
-              <div class="small text-muted">{{ r.read_at.strftime('%H:%M') }}</div>
+              <div>{{ r.read_at | berlin('%d.%m.%Y') }}</div>
+              <div class="small text-muted">{{ r.read_at | berlin('%H:%M') }}</div>
             </td>
             <td>
               <i class="bi bi-{{ ti.icon }} me-1" style="color:{{ ti.color }}"></i>
@@ -89,7 +89,7 @@
             <td class="text-end">
               <button class="btn btn-sm btn-outline-danger"
                       onclick="confirmDelete('{{ url_for('delete_reading', reading_id=r.id) }}',
-                                            'Ablesung vom {{ r.read_at.strftime('%d.%m.%Y') }} löschen?')">
+                                            'Ablesung vom {{ r.read_at | berlin('%d.%m.%Y') }} löschen?')">
                 <i class="bi bi-trash"></i>
               </button>
             </td>
