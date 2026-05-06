@@ -30,6 +30,8 @@ class Meter(db.Model):
     notes        = db.Column(db.Text,        nullable=True)
     created_at   = db.Column(db.DateTime,    default=datetime.utcnow)
     active       = db.Column(db.Boolean,     default=True)
+    import_mask      = db.Column(db.Text, nullable=True)
+    import_field_map = db.Column(db.Text, nullable=True)  # JSON {"E":"value","A":1,"B":2}
 
     readings = db.relationship('Reading', backref='meter', lazy=True,
                                cascade='all, delete-orphan',
