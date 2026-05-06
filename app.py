@@ -6,7 +6,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, send_from_directory)
 from werkzeug.utils import secure_filename
 from sqlalchemy import func
-from models import db, Meter, Reading, METER_TYPES
+from models import db, Meter, Reading, MeterField, ReadingValue, METER_TYPES, FIELD_TYPES
 from config import Config
 
 app = Flask(__name__)
@@ -42,7 +42,12 @@ def allowed_file(filename):
 
 @app.context_processor
 def inject_globals():
-    return {'meter_types': METER_TYPES, 'now': now_berlin(), 'app_version': APP_VERSION}
+    return {
+        'meter_types': METER_TYPES,
+        'field_types': FIELD_TYPES,
+        'now':         now_berlin(),
+        'app_version': APP_VERSION,
+    }
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -82,8 +87,8 @@ def add_meter():
         )
         db.session.add(meter)
         db.session.commit()
-        flash(f'Zähler „{meter.name}" wurde angelegt.', 'success')
-        return redirect(url_for('meters'))
+        flash(f'Zähler „{meter.name}" angelegt. Weitere Felder können jetzt eingerichtet werden.', 'success')
+        return redirect(url_for('edit_meter', meter_id=meter.id))
     return render_template('meter_form.html', meter=None)
 
 
@@ -99,7 +104,7 @@ def edit_meter(meter_id):
         meter.active       = 'active' in request.form
         db.session.commit()
         flash(f'Zähler „{meter.name}" wurde aktualisiert.', 'success')
-        return redirect(url_for('meters'))
+        return redirect(url_for('edit_meter', meter_id=meter.id))
     return render_template('meter_form.html', meter=meter)
 
 
@@ -111,6 +116,64 @@ def delete_meter(meter_id):
     db.session.commit()
     flash(f'Zähler „{name}" wurde gelöscht.', 'warning')
     return redirect(url_for('meters'))
+
+
+# ── Meter Fields ───────────────────────────────────────────────────────────────
+@app.route('/meters/<int:meter_id>/fields/add', methods=['POST'])
+def add_meter_field(meter_id):
+    Meter.query.get_or_404(meter_id)
+    import json as _json
+    options_raw = request.form.get('options', '').strip()
+    options_json = None
+    if options_raw:
+        options_json = _json.dumps([o.strip() for o in options_raw.split(',') if o.strip()])
+    max_order = db.session.query(db.func.max(MeterField.sort_order))\
+                          .filter_by(meter_id=meter_id).scalar() or 0
+    field = MeterField(
+        meter_id   = meter_id,
+        label      = request.form['label'].strip(),
+        field_type = request.form.get('field_type', 'number'),
+        unit       = request.form.get('unit', '').strip() or None,
+        options    = options_json,
+        required   = 'required' in request.form,
+        sort_order = max_order + 1,
+    )
+    db.session.add(field)
+    db.session.commit()
+    flash(f'Feld „{field.label}" wurde hinzugefügt.', 'success')
+    return redirect(url_for('edit_meter', meter_id=meter_id) + '#fields')
+
+
+@app.route('/meters/<int:meter_id>/fields/<int:field_id>/edit', methods=['POST'])
+def edit_meter_field(meter_id, field_id):
+    field = MeterField.query.filter_by(id=field_id, meter_id=meter_id).first_or_404()
+    import json as _json
+    options_raw = request.form.get('options', '').strip()
+    field.label      = request.form['label'].strip()
+    field.field_type = request.form.get('field_type', 'number')
+    field.unit       = request.form.get('unit', '').strip() or None
+    field.options    = _json.dumps([o.strip() for o in options_raw.split(',') if o.strip()]) if options_raw else None
+    field.required   = 'required' in request.form
+    db.session.commit()
+    flash(f'Feld „{field.label}" wurde aktualisiert.', 'success')
+    return redirect(url_for('edit_meter', meter_id=meter_id) + '#fields')
+
+
+@app.route('/meters/<int:meter_id>/fields/<int:field_id>/delete', methods=['POST'])
+def delete_meter_field(meter_id, field_id):
+    field = MeterField.query.filter_by(id=field_id, meter_id=meter_id).first_or_404()
+    label = field.label
+    db.session.delete(field)
+    db.session.commit()
+    flash(f'Feld „{label}" wurde gelöscht.', 'warning')
+    return redirect(url_for('edit_meter', meter_id=meter_id) + '#fields')
+
+
+@app.route('/api/meters/<int:meter_id>/fields')
+def api_meter_fields(meter_id):
+    fields = MeterField.query.filter_by(meter_id=meter_id)\
+                             .order_by(MeterField.sort_order).all()
+    return jsonify([f.to_dict() for f in fields])
 
 
 # ── Readings ───────────────────────────────────────────────────────────────────
@@ -150,6 +213,19 @@ def add_reading():
         reading = Reading(meter_id=meter_id, value=value,
                           read_at=read_at, notes=notes, image_path=image_path)
         db.session.add(reading)
+        db.session.flush()  # get reading.id before commit
+
+        for field in MeterField.query.filter_by(meter_id=meter_id)\
+                                     .order_by(MeterField.sort_order).all():
+            key = f'field_{field.id}'
+            if field.field_type == 'boolean':
+                val = '1' if key in request.form else '0'
+            else:
+                val = request.form.get(key, '').strip()
+            if val != '':
+                db.session.add(ReadingValue(reading_id=reading.id,
+                                            field_id=field.id, value=val))
+
         db.session.commit()
         flash('Ablesung wurde gespeichert.', 'success')
         return redirect(url_for('readings', meter_id=meter_id))
