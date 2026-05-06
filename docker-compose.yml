@@ -3,6 +3,7 @@ services:
   # ── Web Application ──────────────────────────────────────────────────────────
   app:
     build: .
+    pull_policy: build
     container_name: meter-readings-app
     restart: unless-stopped
     ports:
