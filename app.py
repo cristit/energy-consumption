@@ -112,7 +112,13 @@ def edit_meter(meter_id):
             if key.startswith('field_map_') and val:
                 letter = key[len('field_map_'):]
                 if len(letter) == 1 and letter.isalpha():
-                    fmap[letter] = 'value' if val == 'value' else int(val)
+                    if val in ('value', 'notes'):
+                        fmap[letter] = val
+                    else:
+                        try:
+                            fmap[letter] = int(val)
+                        except ValueError:
+                            pass
         meter.import_field_map = json.dumps(fmap) if fmap else None
 
         db.session.commit()
@@ -359,11 +365,14 @@ def import_readings_view(meter_id):
             if Reading.query.filter_by(meter_id=meter.id, read_at=read_at_utc).first():
                 skipped += 1
                 continue
-            r = Reading(meter_id=meter.id, value=value, read_at=read_at_utc)
+            notes_letter = next((l for l, v in fmap.items() if v == 'notes'), None)
+            notes_val    = parsed.get(notes_letter) if notes_letter else None
+            r = Reading(meter_id=meter.id, value=value, read_at=read_at_utc,
+                        notes=notes_val)
             db.session.add(r)
             db.session.flush()
             for letter, fid in fmap.items():
-                if fid == 'value' or letter not in parsed:
+                if fid in ('value', 'notes') or letter not in parsed:
                     continue
                 db.session.add(ReadingValue(
                     reading_id=r.id, field_id=int(fid), value=str(parsed[letter])
@@ -400,15 +409,17 @@ def import_preview(meter_id):
         if err:
             results.append({'line': line, 'ok': False, 'error': err})
             continue
+        notes_letter = next((l for l, v in fmap.items() if v == 'notes'), None)
         row = {
             'line':    line,
             'ok':      True,
             'read_at': parsed['read_at'].strftime('%d.%m.%Y %H:%M'),
             'value':   parsed.get(val_letter),
+            'notes':   parsed.get(notes_letter) if notes_letter else None,
             'fields':  {},
         }
         for letter, fid in fmap.items():
-            if fid != 'value' and letter in parsed:
+            if fid not in ('value', 'notes') and letter in parsed:
                 row['fields'][str(fid)] = parsed[letter]
         results.append(row)
 
