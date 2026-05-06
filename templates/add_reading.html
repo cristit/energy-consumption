@@ -63,6 +63,15 @@
                    value="{{ now }}" required>
           </div>
 
+          <!-- Custom fields (loaded dynamically per meter) -->
+          <div id="customFieldsSection" class="d-none mb-3">
+            <hr class="my-3">
+            <div class="fw-semibold mb-3 text-muted small text-uppercase letter-spacing-1">
+              <i class="bi bi-sliders me-1"></i>Weitere Messwerte
+            </div>
+            <div id="customFieldsContainer" class="row g-3"></div>
+          </div>
+
           <!-- Image upload -->
           <div class="mb-3">
             <label class="form-label fw-semibold">
@@ -166,9 +175,55 @@ function updateConsumption() {
   }
 }
 
-meterSelect.addEventListener('change', updateMeterInfo);
+meterSelect.addEventListener('change', () => { updateMeterInfo(); loadCustomFields(); });
 valueInput.addEventListener('input', updateConsumption);
 updateMeterInfo();
+
+// ── Custom fields ─────────────────────────────────────────────────────────────
+async function loadCustomFields() {
+  const meterId = meterSelect.value;
+  const section   = document.getElementById('customFieldsSection');
+  const container = document.getElementById('customFieldsContainer');
+  if (!meterId) { section.classList.add('d-none'); return; }
+
+  const fields = await fetch(`/api/meters/${meterId}/fields`).then(r => r.json());
+  if (!fields.length) { section.classList.add('d-none'); return; }
+
+  section.classList.remove('d-none');
+  container.innerHTML = fields.map(f => {
+    const req = f.required ? 'required' : '';
+    const badge = f.unit ? `<span class="input-group-text">${f.unit}</span>` : '';
+    let input = '';
+
+    if (f.field_type === 'number') {
+      input = `<div class="input-group">
+        <input type="number" name="field_${f.id}" class="form-control" step="any" ${req}
+               placeholder="0">
+        ${badge}
+      </div>`;
+    } else if (f.field_type === 'text') {
+      input = `<input type="text" name="field_${f.id}" class="form-control" ${req}>`;
+    } else if (f.field_type === 'boolean') {
+      input = `<div class="form-check mt-1">
+        <input class="form-check-input" type="checkbox" name="field_${f.id}" id="cf_${f.id}">
+        <label class="form-check-label" for="cf_${f.id}">Ja</label>
+      </div>`;
+    } else if (f.field_type === 'select') {
+      const opts = f.options.map(o => `<option>${o}</option>`).join('');
+      input = `<select name="field_${f.id}" class="form-select" ${req}>
+        ${f.required ? '' : '<option value="">– wählen –</option>'}
+        ${opts}
+      </select>`;
+    }
+
+    const reqMark = f.required ? '<span class="text-danger ms-1">*</span>' : '';
+    return `<div class="col-sm-6">
+      <label class="form-label fw-semibold small">${f.label}${reqMark}</label>
+      ${input}
+    </div>`;
+  }).join('');
+}
+loadCustomFields();
 
 // Image preview
 const imageInput = document.getElementById('imageInput');
