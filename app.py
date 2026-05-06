@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, send_from_directory)
 from werkzeug.utils import secure_filename
-from sqlalchemy import func
+from sqlalchemy import func, text
 import json
 from models import db, Meter, Reading, MeterField, ReadingValue, METER_TYPES, FIELD_TYPES
 from mask_parser import parse_line, extract_value_letters
@@ -422,8 +422,23 @@ def version():
 
 
 # ── Init ───────────────────────────────────────────────────────────────────────
+def _run_migrations():
+    """Add columns that may be missing in existing databases."""
+    migrations = [
+        "ALTER TABLE meters ADD COLUMN import_mask TEXT",
+        "ALTER TABLE meters ADD COLUMN import_field_map TEXT",
+    ]
+    with db.engine.connect() as conn:
+        for stmt in migrations:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
+
 with app.app_context():
     db.create_all()
+    _run_migrations()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
