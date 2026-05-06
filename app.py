@@ -1,6 +1,7 @@
 import os
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, send_from_directory)
 from werkzeug.utils import secure_filename
@@ -14,6 +15,22 @@ app.config.from_object(Config)
 db.init_app(app)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+BERLIN = ZoneInfo('Europe/Berlin')
+
+def now_berlin():
+    return datetime.now(BERLIN)
+
+def utc_now():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+@app.template_filter('berlin')
+def berlin_filter(dt, fmt='%d.%m.%Y %H:%M'):
+    if dt is None:
+        return ''
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(BERLIN).strftime(fmt)
+
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -22,7 +39,7 @@ def allowed_file(filename):
 
 @app.context_processor
 def inject_globals():
-    return {'meter_types': METER_TYPES, 'now': datetime.utcnow()}
+    return {'meter_types': METER_TYPES, 'now': now_berlin()}
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -114,7 +131,8 @@ def add_reading():
     if request.method == 'POST':
         meter_id = int(request.form['meter_id'])
         value    = float(request.form['value'].replace(',', '.'))
-        read_at  = datetime.strptime(request.form['read_at'], '%Y-%m-%dT%H:%M')
+        read_at_naive = datetime.strptime(request.form['read_at'], '%Y-%m-%dT%H:%M')
+        read_at = read_at_naive.replace(tzinfo=BERLIN).astimezone(timezone.utc).replace(tzinfo=None)
         notes    = request.form.get('notes', '').strip()
 
         image_path = None
@@ -134,7 +152,7 @@ def add_reading():
         return redirect(url_for('readings', meter_id=meter_id))
 
     return render_template('add_reading.html', meters=meters, preselect=preselect,
-                           now=datetime.now().strftime('%Y-%m-%dT%H:%M'))
+                           now=now_berlin().strftime('%Y-%m-%dT%H:%M'))
 
 
 @app.route('/readings/<int:reading_id>/delete', methods=['POST'])
