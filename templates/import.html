@@ -154,6 +154,8 @@ function renderPreview(rows) {
       fieldIds.push(fid);
     });
   }
+  const hasNotes = rows.some(r => r.ok && r.notes);
+  if (hasNotes) cols.push('Notizen');
   cols.push('Zeile');
   head.innerHTML = cols.map(c => `<th>${c}</th>`).join('') + '<th></th>';
 
@@ -172,6 +174,7 @@ function renderPreview(rows) {
         const unit = _fields[fid]?.unit || '';
         cells += `<td>${val}${unit ? ' <small class="text-muted">' + unit + '</small>' : ''}</td>`;
       });
+      if (hasNotes) cells += `<td class="small text-muted">${escHtml(r.notes || '–')}</td>`;
       cells += `<td class="font-monospace small text-muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
                     title="${escHtml(r.line)}">${escHtml(r.line)}</td>`;
       tr.innerHTML = cells + '<td><i class="bi bi-check text-success"></i></td>';
