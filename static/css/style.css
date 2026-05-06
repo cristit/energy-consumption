@@ -4,7 +4,8 @@
 
 body {
   background: #f4f6fb;
-  min-height: 100vh;
+  min-height: 100vh;        /* Fallback für ältere Browser */
+  min-height: 100dvh;       /* Safari iOS: ohne Browser-Chrome */
   display: flex;
   flex-direction: column;
 }
