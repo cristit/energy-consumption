@@ -17,6 +17,9 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 BERLIN = ZoneInfo('Europe/Berlin')
 
+_version_file = os.path.join(os.path.dirname(__file__), 'VERSION')
+APP_VERSION = open(_version_file).read().strip() if os.path.exists(_version_file) else '0.0.0'
+
 def now_berlin():
     return datetime.now(BERLIN)
 
@@ -39,7 +42,7 @@ def allowed_file(filename):
 
 @app.context_processor
 def inject_globals():
-    return {'meter_types': METER_TYPES, 'now': now_berlin()}
+    return {'meter_types': METER_TYPES, 'now': now_berlin(), 'app_version': APP_VERSION}
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -236,6 +239,12 @@ def monthly_summary(meter_id):
         'labels': [v['label'] for _, v in sorted_months],
         'values': [v['total'] for _, v in sorted_months],
     })
+
+
+# ── Version ────────────────────────────────────────────────────────────────────
+@app.route('/api/version')
+def version():
+    return jsonify({'version': APP_VERSION})
 
 
 # ── Init ───────────────────────────────────────────────────────────────────────
