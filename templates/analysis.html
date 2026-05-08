@@ -24,7 +24,7 @@
       <select id="meterSelect" class="form-select">
         {% for m in meters %}
         <option value="{{ m.id }}"
-                {% if request.args.get('meter_id', type=int) == m.id %}selected{% endif %}>
+        {% if request.args.get('meter_id')|int == m.id %}selected{% endif %}>
           {{ m.name }} ({{ m.type_info.label }})
         </option>
         {% endfor %}
