@@ -199,13 +199,25 @@ def api_meter_fields(meter_id):
 @app.route('/readings')
 def readings():
     meter_id = request.args.get('meter_id', type=int)
+    sort     = request.args.get('sort', 'read_at')
+    order    = request.args.get('order', 'desc')
+
+    sort_map = {
+        'read_at': Reading.read_at,
+        'value':   Reading.value,
+        'meter':   Meter.name,
+    }
+    sort_col = sort_map.get(sort, Reading.read_at)
+    sort_dir = sort_col.desc() if order == 'desc' else sort_col.asc()
+
     query = Reading.query.join(Meter)
     if meter_id:
         query = query.filter(Reading.meter_id == meter_id)
-    all_readings = query.order_by(Reading.read_at.desc()).limit(200).all()
+    all_readings = query.order_by(sort_dir).limit(500).all()
     meters = Meter.query.filter_by(active=True).all()
     return render_template('readings.html', readings=all_readings,
-                           meters=meters, selected_meter=meter_id)
+                           meters=meters, selected_meter=meter_id,
+                           sort=sort, order=order)
 
 
 @app.route('/readings/add', methods=['GET', 'POST'])
