@@ -64,13 +64,13 @@
               {{ r.meter.name }}
             </td>
             <td class="text-end fw-semibold">
-              {{ "%.3f"|format(r.value) }}
+              {{ r.value|de(3) }}
               <span class="text-muted small">{{ ti.unit }}</span>
             </td>
             <td class="text-end">
               {% if cons %}
                 <span class="{% if cons.amount > 0 %}text-success{% elif cons.amount < 0 %}text-danger{% endif %}">
-                  {{ "%.3f"|format(cons.amount) }} {{ ti.unit }}
+                  {{ cons.amount|de(3) }} {{ ti.unit }}
                 </span>
                 <div class="small text-muted">{{ cons.days }} Tage</div>
               {% else %}
