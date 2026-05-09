@@ -43,7 +43,7 @@
             <div class="row text-center g-2">
               <div class="col-6">
                 <div class="stat-box p-2 rounded">
-                  <div class="fs-4 fw-bold text-primary">{{ "%.3f"|format(m.latest_reading.value) }}</div>
+                  <div class="fs-4 fw-bold text-primary">{{ m.latest_reading.value|de(3) }}</div>
                   <div class="small text-muted">Letzter Stand</div>
                   <div class="small text-muted">{{ m.latest_reading.read_at | berlin('%d.%m.%Y') }}</div>
                 </div>
@@ -51,7 +51,7 @@
               <div class="col-6">
                 <div class="stat-box p-2 rounded">
                   {% if item.monthly_est is not none %}
-                    <div class="fs-4 fw-bold" style="color:{{ ti.color }}">{{ "%.2f"|format(item.monthly_est) }}</div>
+                    <div class="fs-4 fw-bold" style="color:{{ ti.color }}">{{ item.monthly_est|de(2) }}</div>
                     <div class="small text-muted">~ pro Monat</div>
                   {% else %}
                     <div class="fs-4 fw-bold text-muted">–</div>
@@ -64,9 +64,9 @@
             {% set cons = m.latest_reading.consumption_since_previous %}
             {% if cons %}
             <div class="mt-2 small text-muted text-center">
-              Letzte Periode: <strong>{{ cons.amount }} {{ ti.unit }}</strong>
+              Letzte Periode: <strong>{{ cons.amount|de(3) }} {{ ti.unit }}</strong>
               in {{ cons.days }} Tagen
-              ({{ cons.per_day }} {{ ti.unit }}/Tag)
+              ({{ cons.per_day|de(4) }} {{ ti.unit }}/Tag)
             </div>
             {% endif %}
           {% else %}
