@@ -36,6 +36,17 @@ def berlin_filter(dt, fmt='%d.%m.%Y %H:%M'):
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(BERLIN).strftime(fmt)
 
+@app.template_filter('de')
+def de_number_filter(value, decimals=3):
+    """Format number with German locale: 1.234,567"""
+    if value is None:
+        return '–'
+    try:
+        formatted = f"{float(value):,.{decimals}f}"
+        return formatted.replace(',', 'X').replace('.', ',').replace('X', '.')
+    except (ValueError, TypeError):
+        return str(value)
+
 
 def allowed_file(filename):
     return '.' in filename and \
