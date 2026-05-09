@@ -2,11 +2,15 @@
 {% block title %}Ablesungen – Verbrauchserfassung{% endblock %}
 
 {% block content %}
+{% set opp = 'asc' if order == 'desc' else 'desc' %}
+{% macro sort_url(col) %}{{ url_for('readings') }}?sort={{ col }}&order={{ 'asc' if sort == col and order == 'desc' else 'desc' }}{% if selected_meter %}&meter_id={{ selected_meter }}{% endif %}{% endmacro %}
+{% macro sort_icon(col) %}{% if sort == col %}<i class="bi bi-caret-{{ 'up' if order == 'asc' else 'down' }}-fill ms-1 text-primary" style="font-size:.7rem"></i>{% else %}<i class="bi bi-caret-down ms-1 text-muted opacity-25" style="font-size:.7rem"></i>{% endif %}{% endmacro %}
+
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
   <h1 class="h3 mb-0"><i class="bi bi-list-check me-2 text-primary"></i>Ablesungen</h1>
   <div class="d-flex gap-2 align-items-center flex-wrap">
     <select class="form-select form-select-sm" style="width:auto"
-            onchange="window.location='{{ url_for('readings') }}?meter_id='+this.value">
+            onchange="window.location='{{ url_for('readings') }}?meter_id='+this.value+'&sort={{ sort }}&order={{ order }}'">
       <option value="">Alle Zähler</option>
       {% for m in meters %}
       <option value="{{ m.id }}" {% if selected_meter == m.id %}selected{% endif %}>
@@ -37,9 +41,9 @@
       <table class="table table-hover align-middle mb-0">
         <thead class="table-light">
           <tr>
-            <th>Datum</th>
-            <th>Zähler</th>
-            <th class="text-end">Stand</th>
+            <th><a href="{{ sort_url('read_at') }}" class="text-decoration-none text-reset">Datum{{ sort_icon('read_at') }}</a></th>
+            <th><a href="{{ sort_url('meter') }}"   class="text-decoration-none text-reset">Zähler{{ sort_icon('meter') }}</a></th>
+            <th class="text-end"><a href="{{ sort_url('value') }}" class="text-decoration-none text-reset">Stand{{ sort_icon('value') }}</a></th>
             <th class="text-end">Verbrauch</th>
             <th>Foto</th>
             <th>Notiz</th>
