@@ -103,26 +103,50 @@ def mask_to_regex(mask):
     """
     Convert a mask string to (compiled_pattern, groups_list).
     groups_list is in capture-group order.
+    If the mask ends with a text token (T), the preceding literals + T are
+    wrapped in an optional group so the notes field can be absent.
     """
-    pattern = ''
-    groups  = []
+    tokens = list(_tokenize(mask))
     dt_regex = {name: rx for _, name, rx in _DT_TOKENS}
 
-    for ttype, val, extra in _tokenize(mask):
+    # Detect optional suffix: trailing text token + any literals directly before it
+    suffix_start = None
+    for i in range(len(tokens) - 1, -1, -1):
+        ttype = tokens[i][0]
+        if ttype == 'text':
+            suffix_start = i
+            j = i - 1
+            while j >= 0 and tokens[j][0] == 'literal':
+                suffix_start = j
+                j -= 1
+            break
+        elif ttype != 'literal':
+            break  # non-literal/non-text token before end → no optional suffix
+
+    def token_to_pattern(ttype, val, extra):
         if ttype == 'dt':
-            pattern += dt_regex[val]
+            return dt_regex[val]
+        if ttype == 'value':
+            return r'(\d+(?:[,\.]\d+)+)' if extra else r'(\d+(?:[,\.]\d+)?)'
+        if ttype == 'text':
+            return r'(.*)'
+        return re.escape(val)  # literal
+
+    pattern = ''
+    suffix  = ''
+    groups  = []
+
+    for idx, (ttype, val, extra) in enumerate(tokens):
+        part = token_to_pattern(ttype, val, extra)
+        if ttype in ('dt', 'value', 'text'):
             groups.append(val)
-        elif ttype == 'value':
-            if extra:  # has decimal separator in block
-                pattern += r'(\d+(?:[,\.]\d+)+)'
-            else:
-                pattern += r'(\d+(?:[,\.]\d+)?)'
-            groups.append(val)
-        elif ttype == 'text':
-            pattern += r'(.+)'
-            groups.append(val)
-        else:  # literal
-            pattern += re.escape(val)
+        if suffix_start is not None and idx >= suffix_start:
+            suffix += part
+        else:
+            pattern += part
+
+    if suffix:
+        pattern += f'(?:{suffix})?'
 
     return re.compile(r'^\s*' + pattern + r'\s*$'), groups
 
@@ -179,6 +203,8 @@ def parse_line(line, mask):
 
     for key, val in raw.items():
         if key in ('year', 'month', 'day', 'hour', 'minute', 'second'):
+            continue
+        if val is None:  # optional group not present in line
             continue
         if key in text_letters:
             result[key] = val.strip()
