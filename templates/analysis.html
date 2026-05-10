@@ -61,20 +61,10 @@
   <div class="col-lg-6">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-header bg-transparent fw-semibold">
-        <i class="bi bi-bar-chart me-2 text-warning"></i>Verbrauch pro Ablesung
+        <i class="bi bi-bar-chart me-2 text-warning"></i>Verbrauch pro Monat
       </div>
       <div class="card-body">
-        <canvas id="consumptionChart" height="260"></canvas>
-      </div>
-    </div>
-  </div>
-  <div class="col-12">
-    <div class="card border-0 shadow-sm">
-      <div class="card-header bg-transparent fw-semibold">
-        <i class="bi bi-calendar3 me-2 text-success"></i>Monatlicher Verbrauch
-      </div>
-      <div class="card-body">
-        <canvas id="monthlyChart" height="140"></canvas>
+        <canvas id="monthlyChart" height="260"></canvas>
       </div>
     </div>
   </div>
@@ -88,7 +78,12 @@
 
 {% block scripts %}
 <script>
-let valueChartInst, consumptionChartInst, monthlyChartInst;
+let valueChartInst, monthlyChartInst;
+
+function fmtDE(num, dec=3) {
+  if (num === null || num === undefined) return '–';
+  return num.toFixed(dec).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
 
 async function loadCharts() {
   const meterId = document.getElementById('meterSelect').value;
@@ -97,18 +92,16 @@ async function loadCharts() {
 
   const [detail, monthly] = await Promise.all([
     fetch(`/api/chart-data/${meterId}?months=${months}`).then(r => r.json()),
-    fetch(`/api/monthly-summary/${meterId}`).then(r => r.json()),
+    fetch(`/api/monthly-summary/${meterId}?months=${months}`).then(r => r.json()),
   ]);
 
-  // Destroy old
   valueChartInst?.destroy();
-  consumptionChartInst?.destroy();
   monthlyChartInst?.destroy();
 
   const color = detail.color;
   const unit  = detail.unit;
 
-  // Value line chart
+  // Zählerstandsverlauf
   valueChartInst = new Chart(document.getElementById('valueChart'), {
     type: 'line',
     data: {
@@ -126,60 +119,41 @@ async function loadCharts() {
     options: chartOptions(`Stand (${unit})`),
   });
 
-  // Consumption bar chart
-  consumptionChartInst = new Chart(document.getElementById('consumptionChart'), {
-    type: 'bar',
-    data: {
-      labels: detail.labels,
-      datasets: [{
-        label: `Verbrauch (${unit})`,
-        data: detail.consumptions,
-        backgroundColor: color + 'aa',
-        borderColor: color,
-        borderWidth: 1,
-      }]
-    },
-    options: chartOptions(`Verbrauch (${unit})`),
-  });
-
-  // Monthly bar chart
+  // Verbrauch pro Monat
   monthlyChartInst = new Chart(document.getElementById('monthlyChart'), {
     type: 'bar',
     data: {
       labels: monthly.labels,
       datasets: [{
-        label: `Monat (${monthly.unit})`,
+        label: `Verbrauch (${monthly.unit})`,
         data: monthly.values,
         backgroundColor: monthly.color + '99',
         borderColor: monthly.color,
         borderWidth: 1,
       }]
     },
-    options: chartOptions(`Monat (${monthly.unit})`),
+    options: chartOptions(`${monthly.unit}/Monat`),
   });
 
-  // Stats
+  // Statistik-Kacheln
   const total = detail.values.length >= 2
-    ? (detail.values[detail.values.length-1] - detail.values[0]).toFixed(3)
-    : null;
+    ? detail.values[detail.values.length-1] - detail.values[0] : null;
   const avgMonthly = monthly.values.length
-    ? (monthly.values.reduce((a,b) => a+b, 0) / monthly.values.length).toFixed(3)
-    : null;
+    ? monthly.values.reduce((a,b) => a+b, 0) / monthly.values.length : null;
   const maxMonth = monthly.values.length
-    ? Math.max(...monthly.values).toFixed(3) : null;
+    ? Math.max(...monthly.values) : null;
 
-  const sr = document.getElementById('statsRow');
-  sr.innerHTML = [
-    ['Gesamtverbrauch', total, unit, 'graph-up', 'primary'],
-    ['Ø pro Monat', avgMonthly, unit, 'calculator', 'info'],
-    ['Höchster Monat', maxMonth, unit, 'arrow-up-circle', 'warning'],
-    ['Ablesungen', detail.labels.length, '', 'list-check', 'success'],
+  document.getElementById('statsRow').innerHTML = [
+    ['Gesamtverbrauch', fmtDE(total), unit, 'graph-up', 'primary'],
+    ['Ø pro Monat',     fmtDE(avgMonthly), unit, 'calculator', 'info'],
+    ['Höchster Monat',  fmtDE(maxMonth), unit, 'arrow-up-circle', 'warning'],
+    ['Ablesungen',      detail.labels.length, '', 'list-check', 'success'],
   ].map(([label, val, u, icon, col]) => `
     <div class="col-6 col-md-3">
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <i class="bi bi-${icon} fs-3 text-${col}"></i>
-          <div class="fs-4 fw-bold mt-1">${val !== null ? val + (u?' '+u:'') : '–'}</div>
+          <div class="fs-4 fw-bold mt-1">${val}${u ? ' <span class="small text-muted">'+u+'</span>' : ''}</div>
           <div class="small text-muted">${label}</div>
         </div>
       </div>
