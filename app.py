@@ -336,24 +336,37 @@ def chart_data(meter_id):
 @app.route('/api/monthly-summary/<int:meter_id>')
 def monthly_summary(meter_id):
     meter = Meter.query.get_or_404(meter_id)
-    readings = Reading.query.filter_by(meter_id=meter_id)\
-                            .order_by(Reading.read_at).all()
+    months_back = request.args.get('months', 12, type=int)
+    since = datetime.utcnow() - timedelta(days=months_back * 31)
+
+    readings = Reading.query.filter(
+        Reading.meter_id == meter_id,
+        Reading.read_at >= since
+    ).order_by(Reading.read_at).all()
+
+    # Include one reading before the window to calculate first diff
+    first_before = Reading.query.filter(
+        Reading.meter_id == meter_id,
+        Reading.read_at < since
+    ).order_by(Reading.read_at.desc()).first()
+    if first_before:
+        readings = [first_before] + readings
 
     monthly = {}
     for i in range(1, len(readings)):
-        r     = readings[i]
-        prev  = readings[i-1]
+        r    = readings[i]
+        prev = readings[i-1]
         key   = r.read_at.strftime('%Y-%m')
         label = r.read_at.strftime('%b %Y')
         diff  = round(r.value - prev.value, 3)
         if key not in monthly:
-            monthly[key] = {'label': label, 'total': 0}
+            monthly[key] = {'label': label, 'total': 0.0}
         monthly[key]['total'] = round(monthly[key]['total'] + diff, 3)
 
     sorted_months = sorted(monthly.items())
     return jsonify({
-        'unit': meter.type_info['unit'],
-        'color': meter.type_info['color'],
+        'unit':   meter.type_info['unit'],
+        'color':  meter.type_info['color'],
         'labels': [v['label'] for _, v in sorted_months],
         'values': [v['total'] for _, v in sorted_months],
     })
