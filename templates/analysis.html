@@ -73,6 +73,23 @@
 <!-- Summary stats -->
 <div class="row g-3 mt-2" id="statsRow"></div>
 
+<!-- Vergleich -->
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-transparent d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="fw-semibold">
+      <i class="bi bi-bar-chart-steps me-2 text-primary"></i>Periodenvergleich
+    </span>
+    <div class="btn-group btn-group-sm" role="group">
+      <button type="button" class="btn btn-outline-primary active" onclick="loadComparison('month',this)">Monatlich</button>
+      <button type="button" class="btn btn-outline-primary"        onclick="loadComparison('semester',this)">Halbjährlich</button>
+      <button type="button" class="btn btn-outline-primary"        onclick="loadComparison('year',this)">Jährlich</button>
+    </div>
+  </div>
+  <div class="card-body">
+    <canvas id="comparisonChart" height="140"></canvas>
+  </div>
+</div>
+
 {% endif %}
 {% endblock %}
 
@@ -183,7 +200,39 @@ async function loadCharts() {
     </div>`).join('');
 }
 
-let valueChartInst, monthlyChartInst;
+let valueChartInst, monthlyChartInst, comparisonChartInst;
+
+async function loadComparison(period, btn) {
+  const meterId = document.getElementById('meterSelect').value;
+  if (!meterId) return;
+
+  // Toggle active button
+  btn.closest('.btn-group').querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const data = await fetch(`/api/comparison/${meterId}?period=${period}`).then(r => r.json());
+  comparisonChartInst?.destroy();
+
+  comparisonChartInst = new Chart(document.getElementById('comparisonChart'), {
+    type: 'bar',
+    data: { labels: data.labels, datasets: data.datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: true, position: 'top', labels: { boxWidth: 14, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${fmtDE(ctx.parsed.y)} ${data.unit}`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { font: { size: 11 } } },
+        y: { beginAtZero: true, title: { display: true, text: data.unit } }
+      }
+    }
+  });
+}
 
 function chartOptions(yLabel, beginAtZero=true) {
   return {
@@ -196,10 +245,20 @@ function chartOptions(yLabel, beginAtZero=true) {
   };
 }
 
-// Auto-load on page ready
+function loadAll() {
+  loadCharts();
+  const activeBtn = document.querySelector('#comparisonChart')
+    ? document.querySelector('.btn-group .btn.active') : null;
+  const period = activeBtn?.textContent.includes('Halb') ? 'semester'
+               : activeBtn?.textContent.includes('Jahr') ? 'year' : 'month';
+  loadComparison(period, document.querySelector('.btn-group .btn.active') ||
+    document.querySelector('.btn-group .btn'));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  if (document.getElementById('meterSelect')) loadCharts();
+  if (document.getElementById('meterSelect')) loadAll();
 });
-document.getElementById('meterSelect')?.addEventListener('change', loadCharts);
+document.getElementById('meterSelect')?.addEventListener('change', loadAll);
+document.getElementById('monthsSelect')?.addEventListener('change', loadAll);
 </script>
 {% endblock %}
