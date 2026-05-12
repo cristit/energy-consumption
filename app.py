@@ -372,6 +372,70 @@ def monthly_summary(meter_id):
     })
 
 
+@app.route('/api/comparison/<int:meter_id>')
+def comparison_data(meter_id):
+    meter  = Meter.query.get_or_404(meter_id)
+    period = request.args.get('period', 'month')  # month | semester | year
+
+    readings = Reading.query.filter_by(meter_id=meter_id)\
+                            .order_by(Reading.read_at).all()
+
+    # Build consumption pairs
+    pairs = []
+    for i in range(1, len(readings)):
+        r, prev = readings[i], readings[i-1]
+        pairs.append((r.read_at, round(r.value - prev.value, 3)))
+
+    # Aggregate by period
+    buckets = {}  # {year: {period_key: value}}
+    for dt, diff in pairs:
+        year = dt.year
+        if period == 'month':
+            pkey   = dt.month          # 1-12
+            plabel = dt.strftime('%b') # Jan, Feb …
+        elif period == 'semester':
+            pkey   = 1 if dt.month <= 6 else 2
+            plabel = f'H{pkey}'
+        else:  # year
+            pkey   = year
+            plabel = str(year)
+
+        buckets.setdefault(year, {})
+        entry = buckets[year].setdefault(pkey, {'label': plabel, 'total': 0.0})
+        entry['total'] = round(entry['total'] + diff, 3)
+
+    if period == 'month':
+        x_keys   = list(range(1, 13))
+        x_labels = ['Jan','Feb','Mär','Apr','Mai','Jun',
+                    'Jul','Aug','Sep','Okt','Nov','Dez']
+    elif period == 'semester':
+        x_keys, x_labels = [1, 2], ['H1 (Jan–Jun)', 'H2 (Jul–Dez)']
+    else:
+        all_years = sorted(buckets.keys())
+        x_keys = x_labels = all_years
+
+    years = sorted(buckets.keys())
+    palette = ['#0d6efd','#fd7e14','#198754','#dc3545','#6610f2','#20c997']
+
+    datasets = []
+    for idx, year in enumerate(years):
+        data = [round(buckets[year].get(k, {}).get('total', 0), 3) for k in x_keys]
+        col  = palette[idx % len(palette)]
+        datasets.append({
+            'label':           str(year),
+            'data':            data,
+            'backgroundColor': col + 'bb',
+            'borderColor':     col,
+            'borderWidth':     1,
+        })
+
+    return jsonify({
+        'unit':     meter.type_info['unit'],
+        'labels':   [str(l) for l in x_labels],
+        'datasets': datasets,
+    })
+
+
 # ── Import ─────────────────────────────────────────────────────────────────────
 @app.route('/meters/<int:meter_id>/import', methods=['GET', 'POST'])
 def import_readings_view(meter_id):
