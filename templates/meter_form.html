@@ -305,7 +305,8 @@ document.querySelectorAll('[name="field_type"]').forEach(s => {
 
 // ── Import mask ─────────────────────────────────────────────────
 const _existingFieldMap = {{ (meter.import_field_map or '{}') | tojson | safe }};
-const _meterFields = [{% for f in meter.fields %}{id:{{f.id}},label:"{{f.label|e}}",unit:"{{f.unit or ''}}"}{% if not loop.last %},{% endif %}{% endfor %}];
+const _meterFields = [{% for f in meter.fields %}{id:{{f.id}},label:"{{f.label|e}}",unit:"{{f.unit or ''}}",type:"{{f.field_type}}"}{% if not loop.last %},{% endif %}{% endfor %}];
+const _TEXT_LETTERS = new Set(['T','S','R','N','X','P','Q']);
 
 function extractLetters(mask) {
   let s = mask.replace(/YYYY|DD|MM|HH|mm|ss/g, '');
@@ -328,19 +329,19 @@ function updateFieldMapping() {
 
   rows.innerHTML = letters.map(letter => {
     const saved   = _existingFieldMap[letter];
-    const isText  = letter === 'T';
+    const isText  = _TEXT_LETTERS.has(letter);
 
     let opts = `<option value=""${!saved && letter !== 'E' && !isText ? ' selected' : ''}>(ignorieren)</option>`;
     if (!isText) {
       opts += `<option value="value"${saved === 'value' || (letter === 'E' && !saved) ? ' selected' : ''}>Hauptwert</option>`;
     }
     opts += `<option value="notes"${saved === 'notes' || (isText && !saved) ? ' selected' : ''}>Notizen (Freitext)</option>`;
-    if (!isText) {
-      _meterFields.forEach(f => {
-        const sel = saved == f.id ? ' selected' : '';
-        opts += `<option value="${f.id}"${sel}>${f.label}${f.unit ? ' (' + f.unit + ')' : ''}</option>`;
-      });
-    }
+    // numeric letters → all fields; text letters → only text-type fields
+    _meterFields.forEach(f => {
+      if (isText && f.type !== 'text') return;
+      const sel = saved == f.id ? ' selected' : '';
+      opts += `<option value="${f.id}"${sel}>${f.label}${f.unit ? ' (' + f.unit + ')' : ''}</option>`;
+    });
 
     return `<div class="col-sm-6 col-md-4">
       <label class="form-label fw-semibold"><code>${letter}</code></label>
