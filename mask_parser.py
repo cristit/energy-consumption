@@ -2,17 +2,24 @@
 Mask parser for structured meter data import.
 
 Mask tokens:
-  DD, MM, YYYY   – date (day, month, year)
-  HH, mm, ss     – time (hour, minute, second)
-  E...E          – main meter reading value (numeric, decimal separator allowed)
-  A...A, B...B   – custom field values (numeric, any uppercase letter except D/M/Y/H/T)
-  T...T          – free text capture to end of line (e.g. notes)
+  DD, MM, YYYY      – date (day, month, year)
+  HH, mm, ss        – time (hour, minute, second)
+  E...E             – main meter reading value (numeric)
+  A...A, B...B, ... – custom numeric field values (any uppercase except D/M/Y/H and text letters)
+  T S R N X P Q    – free text capture (string, not numeric)
+                      In the middle of a mask: captures until next literal delimiter
+                      At the end of a mask:    captures rest of line (optional)
 
-Literal characters (., :, /, space, etc.) must appear as-is in the data.
+Literal characters (., :, ;, /, space, etc.) must appear as-is in the data.
 
-Example:
-  mask  → "DD.MM.YYYY HH:mm EEEEE,EEE AAA,AAA/BBB,BBB/CCC,CCC - TTTTTTTTTTT"
-  data  → "02.01.2026 11:52 5835,679 37,1/42,1/42,1 - Keller Zähler"
+Examples:
+  mask → "DD.MM.YYYY;HH:mm;AAA,AAAA;EEEEE,EEEE;SSSSSSS;RRRRRR;"
+  data → "22.07.2025;02:15;0,0544;7,4771;Gemessen;ET;"
+  → S="Gemessen", R="ET"
+
+  mask → "DD.MM.YYYY HH:mm EEEEE,EEE - TTTTTTT"
+  data → "02.01.2026 11:52 5835,679 - Keller"
+  → T="Keller" (optional)
 """
 import re
 from datetime import datetime
@@ -28,8 +35,8 @@ _DT_TOKENS = [
 ]
 # Uppercase letters reserved for date/time tokens
 _DT_UPPER = frozenset('DYMH')
-# Uppercase letters that capture free text (to end of line)
-_TEXT_UPPER = frozenset('T')
+# Uppercase letters that capture free text (not numeric)
+_TEXT_UPPER = frozenset('TSRNXPQ')
 
 
 def _tokenize(mask):
@@ -37,12 +44,11 @@ def _tokenize(mask):
     Yield (token_type, name_or_char, metadata) for each segment of the mask.
       ('dt',      'year'|'month'|..., seq_str)
       ('value',   letter,             has_decimal_sep: bool)
-      ('text',    letter,             None)           ← free-text capture
+      ('text',    letter,             None)
       ('literal', char,               None)
     """
     i, n = 0, len(mask)
     while i < n:
-        # Try date/time tokens first (longest first)
         matched = False
         for seq, name, _ in _DT_TOKENS:
             end = i + len(seq)
@@ -57,7 +63,6 @@ def _tokenize(mask):
         c = mask[i]
         if c.isupper() and c not in _DT_UPPER:
             letter = c
-            # Consume all consecutive same-letter chars
             j = i
             while j < n and mask[j] == letter:
                 j += 1
@@ -66,7 +71,7 @@ def _tokenize(mask):
                 yield 'text', letter, None
                 i = j
             else:
-                # Numeric value: may contain internal decimal separator
+                # Numeric: may contain internal decimal separator
                 has_decimal = False
                 while j < n:
                     if mask[j] == letter:
@@ -102,14 +107,16 @@ def extract_value_letters(mask):
 def mask_to_regex(mask):
     """
     Convert a mask string to (compiled_pattern, groups_list).
-    groups_list is in capture-group order.
-    If the mask ends with a text token (T), the preceding literals + T are
-    wrapped in an optional group so the notes field can be absent.
+
+    Text tokens in the middle use a negated-char-class based on the next literal
+    so they stop at the right delimiter (e.g. [^;]* before a semicolon).
+    The trailing text token + its preceding literals are wrapped in (?:...)?
+    making them optional.
     """
     tokens = list(_tokenize(mask))
     dt_regex = {name: rx for _, name, rx in _DT_TOKENS}
 
-    # Detect optional suffix: trailing text token + any literals directly before it
+    # Detect optional trailing suffix: last text token + any literals before it
     suffix_start = None
     for i in range(len(tokens) - 1, -1, -1):
         ttype = tokens[i][0]
@@ -120,16 +127,26 @@ def mask_to_regex(mask):
                 suffix_start = j
                 j -= 1
             break
-        elif ttype != 'literal':
-            break  # non-literal/non-text token before end → no optional suffix
+        elif ttype not in ('literal',):
+            break
 
-    def token_to_pattern(ttype, val, extra):
+    def text_pattern(idx):
+        """Regex for a text token: negated-class if next token is a literal, else .*"""
+        for j in range(idx + 1, len(tokens)):
+            ntype, nval, _ = tokens[j]
+            if ntype == 'literal':
+                return f'([^{re.escape(nval)}]*)'
+            if ntype in ('dt', 'value', 'text'):
+                break
+        return r'(.*)'
+
+    def token_to_pattern(idx, ttype, val, extra):
         if ttype == 'dt':
             return dt_regex[val]
         if ttype == 'value':
             return r'(\d+(?:[,\.]\d+)+)' if extra else r'(\d+(?:[,\.]\d+)?)'
         if ttype == 'text':
-            return r'(.*)'
+            return text_pattern(idx)
         return re.escape(val)  # literal
 
     pattern = ''
@@ -137,7 +154,7 @@ def mask_to_regex(mask):
     groups  = []
 
     for idx, (ttype, val, extra) in enumerate(tokens):
-        part = token_to_pattern(ttype, val, extra)
+        part = token_to_pattern(idx, ttype, val, extra)
         if ttype in ('dt', 'value', 'text'):
             groups.append(val)
         if suffix_start is not None and idx >= suffix_start:
@@ -171,7 +188,7 @@ def parse_line(line, mask):
     Parse one data line using the mask.
     Returns (result_dict, error_str).
     result_dict contains 'read_at' (datetime) + one key per value/text letter.
-    Text letters (T) are kept as strings; value letters are converted to float.
+    Text letters are kept as strings; value letters are converted to float.
     """
     try:
         regex, groups = mask_to_regex(mask)
@@ -183,8 +200,6 @@ def parse_line(line, mask):
         return None, 'Zeile stimmt nicht mit der Maske überein'
 
     raw = dict(zip(groups, m.groups()))
-
-    # Determine which letters are text captures
     text_letters = {val for ttype, val, _ in _tokenize(mask) if ttype == 'text'}
 
     try:
@@ -204,7 +219,7 @@ def parse_line(line, mask):
     for key, val in raw.items():
         if key in ('year', 'month', 'day', 'hour', 'minute', 'second'):
             continue
-        if val is None:  # optional group not present in line
+        if val is None:
             continue
         if key in text_letters:
             result[key] = val.strip()
