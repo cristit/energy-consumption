@@ -34,20 +34,34 @@
       </div>
     </div>
 
-    <!-- Step 1 – paste / preview -->
+    <!-- Step 1 – paste / upload / preview -->
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-header">
         <h6 class="mb-0 fw-semibold">
-          <i class="bi bi-1-circle me-2 text-primary"></i>Daten einfügen &amp; Vorschau
+          <i class="bi bi-1-circle me-2 text-primary"></i>Daten einfügen oder CSV-Datei laden
         </h6>
       </div>
       <div class="card-body">
+        <!-- CSV upload -->
+        <div class="mb-3 d-flex align-items-center gap-3 flex-wrap">
+          <label class="btn btn-outline-secondary btn-sm mb-0">
+            <i class="bi bi-file-earmark-text me-1"></i>CSV-Datei wählen
+            <input type="file" id="csvFile" accept=".csv,.txt" class="d-none" onchange="loadCsvFile(this)">
+          </label>
+          <span id="csvFileName" class="small text-muted"></span>
+        </div>
         <textarea id="rawData" class="form-control font-monospace mb-3" rows="8"
-                  placeholder="Datenzeilen hier einfügen …"></textarea>
-        <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadPreview()">
-          <i class="bi bi-play-fill me-1"></i>Vorschau laden
-        </button>
-        <span id="previewStatus" class="ms-3 small text-muted"></span>
+                  placeholder="Datenzeilen hier einfügen oder CSV-Datei laden …"></textarea>
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadPreview()">
+            <i class="bi bi-play-fill me-1"></i>Vorschau laden
+          </button>
+          <div class="form-check mb-0">
+            <input class="form-check-input" type="checkbox" id="skipHeader" checked>
+            <label class="form-check-label small" for="skipHeader">Erste Zeile überspringen (Kopfzeile)</label>
+          </div>
+          <span id="previewStatus" class="small text-muted"></span>
+        </div>
       </div>
     </div>
 
@@ -76,6 +90,7 @@
           </button>
           <form method="post" id="importForm">
             <input type="hidden" name="data" id="importData">
+            <input type="hidden" name="skip_header" id="importSkipHeader">
             <button type="button" class="btn btn-success btn-sm" id="importBtn" onclick="submitImport()">
               <i class="bi bi-upload me-1"></i>Importieren
             </button>
@@ -102,6 +117,19 @@ const _fields    = {
 
 let _previewRows = [];
 
+function loadCsvFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('csvFileName').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    // Detect encoding: try UTF-8, fall back shown as-is
+    document.getElementById('rawData').value = e.target.result;
+    document.getElementById('previewSection').classList.add('d-none');
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
 async function loadPreview() {
   const raw  = document.getElementById('rawData').value.trim();
   const stat = document.getElementById('previewStatus');
@@ -109,7 +137,10 @@ async function loadPreview() {
 
   stat.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Lade…';
 
-  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  let lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  if (document.getElementById('skipHeader')?.checked && lines.length > 1) {
+    lines = lines.slice(1);
+  }
   try {
     const res  = await fetch(`/api/meters/${_meterId}/parse-preview`, {
       method:  'POST',
@@ -191,13 +222,23 @@ function resetPreview() {
   document.getElementById('previewSection').classList.add('d-none');
   document.getElementById('rawData').value = '';
   document.getElementById('previewStatus').textContent = '';
+  document.getElementById('csvFileName').textContent = '';
+  document.getElementById('csvFile').value = '';
 }
 
 function submitImport() {
-  document.getElementById('importData').value =
-    document.getElementById('rawData').value;
+  let raw = document.getElementById('rawData').value;
+  if (document.getElementById('skipHeader')?.checked) {
+    const lines = raw.split('\n');
+    const first = lines.findIndex(l => l.trim());
+    if (first >= 0) lines.splice(first, 1);
+    raw = lines.join('\n');
+  }
+  document.getElementById('importData').value = raw;
   document.getElementById('importForm').submit();
 }
+
+
 
 function escHtml(s) {
   return String(s ?? '')
