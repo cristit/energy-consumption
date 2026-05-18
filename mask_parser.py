@@ -144,7 +144,7 @@ def mask_to_regex(mask):
         if ttype == 'dt':
             return dt_regex[val]
         if ttype == 'value':
-            return r'(\d+(?:[,\.]\d+)+)' if extra else r'(\d+(?:[,\.]\d+)?)'
+            return r'(\d+(?:[,\.]\d+)*)' if extra else r'(\d+(?:[,\.]\d+)?)'
         if ttype == 'text':
             return text_pattern(idx)
         return re.escape(val)  # literal
