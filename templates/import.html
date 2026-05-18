@@ -42,16 +42,19 @@
         </h6>
       </div>
       <div class="card-body">
-        <!-- CSV upload -->
-        <div class="mb-3 d-flex align-items-center gap-3 flex-wrap">
-          <label class="btn btn-outline-secondary btn-sm mb-0">
-            <i class="bi bi-file-earmark-text me-1"></i>CSV-Datei wählen
-            <input type="file" id="csvFile" accept=".csv,.txt" class="d-none" onchange="loadCsvFile(this)">
-          </label>
-          <span id="csvFileName" class="small text-muted"></span>
+        <!-- Drop zone -->
+        <div id="dropZone" class="mb-3 rounded border-2 border-dashed text-center py-4 px-3"
+             style="border: 2px dashed #ced4da; cursor: pointer; transition: all .2s"
+             onclick="document.getElementById('csvFile').click()">
+          <i class="bi bi-cloud-arrow-up fs-2 text-muted"></i>
+          <div class="mt-1 small text-muted">
+            CSV hierher ziehen oder <span class="text-primary fw-semibold">Datei wählen</span>
+          </div>
+          <div id="csvFileName" class="small text-success fw-semibold mt-1"></div>
+          <input type="file" id="csvFile" accept=".csv,.txt" class="d-none" onchange="loadCsvFile(this)">
         </div>
         <textarea id="rawData" class="form-control font-monospace mb-3" rows="8"
-                  placeholder="Datenzeilen hier einfügen oder CSV-Datei laden …"></textarea>
+                  placeholder="… oder Datenzeilen direkt hier einfügen"></textarea>
         <div class="d-flex align-items-center gap-3 flex-wrap">
           <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadPreview()">
             <i class="bi bi-play-fill me-1"></i>Vorschau laden
@@ -117,18 +120,41 @@ const _fields    = {
 
 let _previewRows = [];
 
-function loadCsvFile(input) {
-  const file = input.files[0];
+function readFile(file) {
   if (!file) return;
-  document.getElementById('csvFileName').textContent = file.name;
+  document.getElementById('csvFileName').textContent = '✓ ' + file.name;
   const reader = new FileReader();
   reader.onload = e => {
-    // Detect encoding: try UTF-8, fall back shown as-is
     document.getElementById('rawData').value = e.target.result;
     document.getElementById('previewSection').classList.add('d-none');
   };
   reader.readAsText(file, 'UTF-8');
 }
+
+function loadCsvFile(input) {
+  readFile(input.files[0]);
+}
+
+// Drag & Drop
+const dz = document.getElementById('dropZone');
+['dragenter','dragover'].forEach(evt => {
+  dz.addEventListener(evt, e => {
+    e.preventDefault();
+    dz.style.borderColor = '#0d6efd';
+    dz.style.background  = '#f0f5ff';
+  });
+});
+['dragleave','drop'].forEach(evt => {
+  dz.addEventListener(evt, e => {
+    e.preventDefault();
+    dz.style.borderColor = '#ced4da';
+    dz.style.background  = '';
+  });
+});
+dz.addEventListener('drop', e => {
+  const file = e.dataTransfer.files[0];
+  if (file) readFile(file);
+});
 
 async function loadPreview() {
   const raw  = document.getElementById('rawData').value.trim();
@@ -224,6 +250,8 @@ function resetPreview() {
   document.getElementById('previewStatus').textContent = '';
   document.getElementById('csvFileName').textContent = '';
   document.getElementById('csvFile').value = '';
+  dz.style.borderColor = '#ced4da';
+  dz.style.background  = '';
 }
 
 function submitImport() {
